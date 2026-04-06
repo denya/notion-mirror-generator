@@ -33,9 +33,10 @@ $setup-notion-mirror
 
 Use the skill when you want Codex to drive the full setup flow instead of just generating files. The skill is intended to:
 
+- ask first whether you want local-only backup/preview today or full Cloudflare deployment
 - collect missing project/domain/branding preferences
 - explain how to get the Notion integration API key and root page ID
-- explain the Cloudflare and Wrangler prerequisites
+- explain the Cloudflare and Wrangler prerequisites only when deployment is in scope
 - scaffold the mirror repo from `templates/notion-mirror/`
 - create a local backup/export under `data/sites/<site-key>/`
 - launch the localhost copy of the rendered site
@@ -44,6 +45,8 @@ Use the skill when you want Codex to drive the full setup flow instead of just g
 - deploy, warm caches, and verify the live result
 
 ## Manual setup checklist
+
+If you only want to test the first half today, stop after step 5. That gives you a local static copy backed by Notion API data without touching Cloudflare.
 
 ### 1. Gather Notion inputs
 
@@ -139,6 +142,14 @@ Launch it with:
 ```sh
 bun run serve:local
 ```
+
+Verify locally:
+
+1. `http://localhost:8788/`
+2. `http://localhost:8788/__backup/routes.json`
+3. one representative child page path from that routes manifest
+
+If that works, the local backup/static-copy onboarding path is working.
 
 ### 6. Deploy with Wrangler
 

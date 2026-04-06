@@ -11,6 +11,8 @@ Use this skill inside a generated backup/mirror repo after it has been scaffolde
 
 Take the repo from freshly generated to backed up locally, locally previewable, deployed, and verified.
 
+If the user says they only want the local static copy today, stop after the local verification section and defer Cloudflare.
+
 ## Prerequisites
 
 Confirm before running commands:
@@ -26,12 +28,14 @@ Run from the generated repo root:
 ```sh
 bun install
 bun run setup
+export NOTION_API_KEY=...
 bun run backup
 bun run serve:local
 ./deploy.sh
 bun run warm:notion
 ```
 
+Use `bun run backup:workspace` instead of `bun run backup` when they want private pages accessible to the integration.
 Use `bun run warm` for template-only changes after the initial setup.
 
 ## Verification
@@ -40,11 +44,14 @@ Verify all of the following before closing the task:
 
 - `data/sites/<site-key>/backup/` contains JSON page backups
 - `http://localhost:8788/` loads after `bun run serve:local`
+- `http://localhost:8788/__backup/routes.json` returns the backed-up routes
 - `https://<your-domain>/` loads
 - `/sitemap.xml` returns XML
 - at least one child page resolves
 - branding, footer, and analytics settings match the intended values
 - `bun run warm:notion` finishes without live-page verification failures
+
+For local-only sessions, the first three checks are enough; skip the Cloudflare checks.
 
 If verification fails, inspect:
 

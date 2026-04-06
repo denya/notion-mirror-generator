@@ -1,0 +1,32 @@
+name = "<%= wranglerWorkerName %>"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+routes = [
+  { pattern = "<%= domainName %>", custom_domain = true },
+]
+
+[vars]
+ROOT_PAGE_ID = <%- jsString(rootPageId) %>
+SITE_DOMAIN = <%- jsString(domainName) %>
+SITE_NAME = <%- jsString(siteName) %>
+SITE_DESCRIPTION = <%- jsString(siteDescription) %>
+CACHE_TTL_SECONDS = "86400"
+NOTION_WORKSPACE_SLUG = <%- jsString(notionWorkspaceSlug) %>
+GOOGLE_TAG_ID = <%- jsString(googleTagId) %>
+SHORT_LINK_REDIRECT_STATUS = <%- jsString(shortLinkRedirectStatus) %>
+SHORT_LINKS_JSON = '''
+<%- jsonPretty(shortLinks) %>
+'''
+
+# KV namespace for cached HTML pages
+[[kv_namespaces]]
+binding = "PAGE_CACHE"
+id = "placeholder-create-via-wrangler"
+
+# R2 bucket for cached images
+[[r2_buckets]]
+binding = "IMAGE_STORE"
+bucket_name = "<%= r2BucketName %>"

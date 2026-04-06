@@ -1,0 +1,21 @@
+# common
+.DS_Store
+/node_modules
+*-lock.*
+*.lock
+*.log
+.env
+.env.*
+!.env.example
+.dev.vars
+!.dev.vars.example
+
+/dist
+.tmp/
+/data/sites/
+
+# wrangler project
+
+.wrangler/
+.vscode
+.git

@@ -1,0 +1,29 @@
+{
+  "name": "<%= packageJsonName %>",
+  "version": "2.0.0",
+  "description": "Notion page mirror for <%= domainName %> via official API",
+  "private": true,
+  "scripts": {
+    "setup": "bun run scripts/setup.ts",
+    "backup": "bun run scripts/backup-site.ts",
+    "backup:workspace": "bun run scripts/backup-site.ts --workspace",
+    "backup:refresh": "bun run scripts/backup-site.ts --refresh-notion",
+    "serve:local": "bun run scripts/serve-local.ts",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "logs": "wrangler tail",
+    "types": "wrangler types",
+    "warm": "bun run scripts/warm-cache.ts",
+    "warm:notion": "bun run scripts/warm-cache.ts --refresh-notion",
+    "warm:images": "bun run scripts/warm-cache.ts --refresh-images",
+    "warm:fresh": "bun run scripts/warm-cache.ts --refresh-notion --refresh-images"
+  },
+  "dependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240117.0",
+    "typescript": "^5.3.0",
+    "wrangler": "^4"
+  }
+}

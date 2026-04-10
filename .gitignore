@@ -178,3 +178,4 @@ spain.denyamsk.ru/.cache/
 
 # Generated sites (local-only, never commit)
 data/
+AGENTS-LOG.md

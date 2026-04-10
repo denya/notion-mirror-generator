@@ -1,409 +1,146 @@
-# NoteHost
+# Notion Mirror Generator
 
-This repo now has two scaffold paths:
+Turn any Notion page into a fast, branded, SEO-friendly website on your own domain — backed by Cloudflare Workers, with a local backup you own.
 
-1. `notehost init <domain>` for the legacy lightweight worker starter.
-2. `notehost init-mirror <project-name>` for the newer reusable Notion backup-plus-mirror stack with local JSON/static export, localhost preview, Cloudflare KV/R2 cache serving, and agent-friendly setup files.
+**Live example:** [spain.denyamsk.ru](https://spain.denyamsk.ru) (mirrored from a Notion workspace)
 
-## Recommended path
+## Notion source → Deployed mirror
 
-Build the CLI once:
+<table>
+<tr>
+<th width="50%">Notion (source)</th>
+<th width="50%">Mirror (deployed)</th>
+</tr>
+<tr>
+<td><a href="https://barcelona-startups-relocation.notion.site/Relocate-to-Spain-Digital-Nomad-Startup-Founders-1372979b1b584059bd83d19bbbafa985"><img src="./assets/screenshots/notion-source.png" alt="Notion source page" /></a></td>
+<td><a href="https://spain.denyamsk.ru/"><img src="./assets/screenshots/mirror-spain-denyamsk.png" alt="Deployed mirror" /></a></td>
+</tr>
+</table>
 
-```sh
-npm run build
-```
+Same content, same page tree, but now served from your own domain with custom branding, fast CDN caching, rich bookmark previews, a generated sitemap, optional Google Analytics, short links, and a private local backup.
 
-Generate a new reusable mirror repo. For multiple sites in one workspace, use a nested path such as `data/sites/my-notion-site`:
+## What it does
 
-```sh
-node dist/cli/index.js init-mirror data/sites/my-notion-site
-```
+1. **Scaffolds** a new Cloudflare Workers project from a template, wiring up your Notion page ID, domain, branding, and analytics.
+2. **Backs up** every page reachable from your root page to local JSON + static HTML — you own a full copy that works offline.
+3. **Previews** the backup locally at `http://localhost:8788` before you deploy.
+4. **Deploys** to Cloudflare with one script: KV namespace + R2 bucket + secrets + custom domain.
+5. **Warms** the cache from your local backup so the first visitor hits a pre-rendered page.
 
-The modern scaffold asks for the domain, Notion root page, workspace slug, branding, analytics, short links, and footer/brand links, then renders a standalone repo from `templates/notion-mirror/`.
+## Quick start
 
-## Skill-assisted setup
+### Prerequisites
 
-This repo now includes a Codex skill at `.codex/skills/setup-notion-mirror/SKILL.md`.
+- **[Bun](https://bun.sh)** for running the generator and scripts
+- **Notion integration token** ([how to create one](https://developers.notion.com/docs/create-a-notion-integration))
+- **Cloudflare account** with a domain on Cloudflare DNS (for deploying — optional for local preview)
+- **Claude Code** ([install](https://docs.claude.com/claude-code)) — this repo ships as a Claude Code skill
 
-Invoke it from the repo root with:
-
-```text
-$setup-notion-mirror
-```
-
-Use the skill when you want Codex to drive the full setup flow instead of just generating files. The skill is intended to:
-
-- ask first whether you want local-only backup/preview today or full Cloudflare deployment
-- collect missing project/domain/branding preferences
-- explain how to get the Notion integration API key and root page ID
-- explain the Cloudflare and Wrangler prerequisites only when deployment is in scope
-- scaffold the mirror repo from `templates/notion-mirror/`
-- create a local backup/export under `data/sites/<site-key>/`
-- launch the localhost copy of the rendered site
-- prepare `.env` and `.dev.vars`
-- review `wrangler.toml` and deploy settings
-- deploy, warm caches, and verify the live result
-
-## Manual setup checklist
-
-If you only want to test the first half today, stop after step 5. That gives you a local static copy backed by Notion API data without touching Cloudflare.
-
-### 1. Gather Notion inputs
-
-Before scaffolding, collect:
-
-1. `NOTION_API_KEY`
-2. the public site domain
-3. the root Notion page ID
-4. the workspace slug if you want workspace-domain hints
-5. brand/template preferences such as name, logo, theme color, footer links, analytics, and short links
-
-How to get the Notion API key and page access:
-
-1. In Notion, create an internal integration.
-2. Give it read access to content.
-3. Copy the secret and keep it as `NOTION_API_KEY`.
-4. Open the root page you want to mirror and share it with that integration.
-5. Copy the page ID from the URL.
-
-### 2. Gather Cloudflare prerequisites
-
-The generated mirror uses Cloudflare Workers, KV, R2, routes, and secrets.
-
-Make sure:
-
-1. the domain is managed by Cloudflare
-2. the target hostname is proxied through Cloudflare
-3. Wrangler auth works via `bunx wrangler login` or `CLOUDFLARE_API_TOKEN`
-4. the auth can manage Workers, KV, R2, custom domains/routes, and secrets
-
-### 3. Scaffold the backup/mirror repo
-
-Build the CLI and generate the repo:
+### 1. Clone and build
 
 ```sh
-npm run build
-node dist/cli/index.js init-mirror data/sites/my-notion-site
-```
-
-The scaffold prompts for:
-
-- local project slug
-- public domain
-- root page ID
-- site name and description
-- workspace slug
-- Google Tag ID
-- short links and redirect status
-- brand/footer links and theme color
-
-### 4. Prepare the generated repo
-
-Enter the generated repo and bootstrap local files:
-
-```sh
-cd my-notion-site
+git clone https://github.com/denya/notion-mirror-generator.git
+cd notion-mirror-generator
 bun install
-bun run setup
+bun run build
 ```
 
-`bun run setup` creates `.env` and `.dev.vars`. If `NOTION_API_KEY` is already in your shell, it copies that value into both files automatically.
+### 2. Run the skill in Claude Code
 
-Review these generated values before deploying:
+Open Claude Code in this directory and invoke:
 
-- worker name
-- custom domain route
-- root page ID
-- KV namespace placeholder
-- R2 bucket name
-- brand/footer defaults
+```
+/setup-notion-mirror
+```
 
-### 5. Create the local backup and localhost mirror
+Claude will guide you through:
 
-Before Cloudflare deploy, create the local copy:
+1. Choosing local-only backup or full Cloudflare deploy
+2. Collecting your Notion root page URL and integration token
+3. Scaffolding a new project into `data/sites/<your-slug>/`
+4. Running the local backup and localhost preview
+5. Setting up Cloudflare (via the bundled `setup-cloudflare` skill)
+6. Deploying the worker and warming the cache
+
+All answers are remembered per session — you can stop after step 4 if you only want a local backup today.
+
+### 3. Manual path (without Claude)
+
+Prefer running it yourself? The CLI works standalone:
 
 ```sh
-bun run backup
+node dist/cli/index.js init-mirror data/sites/my-site
+cd data/sites/my-site
+bun install
+bun run setup             # creates .env and .dev.vars
+export NOTION_API_KEY=ntn_...
+bun run backup            # public-pages backup (root crawl)
+bun run serve:local       # localhost preview
+./deploy.sh               # deploy to Cloudflare
+source .env && bun run warm:fast  # pre-render all pages into KV
 ```
 
-For a broader local backup that includes private pages accessible to the integration, use:
+## Features
 
-```sh
-bun run backup:workspace
-```
+- **Full local backup** — every public page downloaded as JSON + static HTML you can serve offline
+- **Rich bookmark cards** — Notion link blocks render with OG title, description, favicon, and thumbnail (warmed at build time)
+- **Table of Contents** — optional public `/toc` page with page hierarchy, grouped public/private
+- **Image proxy** — Notion's expiring signed URLs cached permanently in R2
+- **Dark mode** — theme toggle with `prefers-color-scheme` fallback
+- **SEO** — auto-generated sitemap.xml, OG metadata per page, canonical URLs, breadcrumbs
+- **Short links** — configurable `/slug → long-page-url` redirects (302/301)
+- **Custom branding** — logo, theme color, footer, favicon, Google Analytics
+- **Fast cache warming** — `warm:fast` re-renders all pages from local snapshots in seconds, no Notion API calls
+- **Workspace vs public scope** — separate `backup` (public) and `backup:workspace` (includes private pages) commands
+- **Config from wrangler.toml** — single source of truth; local scripts read vars at runtime, no rebuild needed after config changes
 
-This writes:
+## How it works
 
-- JSON snapshots to `data/sites/<site-key>/backup/`
-- static locally-served output to `data/sites/<site-key>/site/`
+Two halves:
 
-Launch it with:
+**Local half** (`scripts/`)
+- `backup-site.ts` walks your Notion page tree via the official API, downloads every page, renders HTML with the same template the Worker uses, and saves it to `data/sites/<slug>/`.
+- `serve-local.ts` serves the static backup at `localhost:8788` with a footer TOC link.
+- `warm-cache.ts` re-renders pages from the local snapshots and uploads to Cloudflare KV — fast enough that you can preview any renderer change in seconds.
 
-```sh
-bun run serve:local
-```
+**Cloudflare half** (`src/`)
+- A Hono-based Worker (`src/index.ts`) serves pages from KV, falls back to Notion API on miss, and proxies images through R2.
+- `src/template.ts` renders a Notion-like page with your branding applied.
+- `src/renderer.ts` handles every Notion block type (headings, callouts, toggles, tables, bookmarks, etc.).
+- `wrangler.toml` holds all config as plain `[vars]` — change a value, redeploy.
 
-Verify locally:
-
-1. `http://localhost:8788/`
-2. `http://localhost:8788/__backup/routes.json`
-3. one representative child page path from that routes manifest
-
-If that works, the local backup/static-copy onboarding path is working.
-
-### 6. Deploy with Wrangler
-
-Run:
-
-```sh
-./deploy.sh
-```
-
-The deploy script:
-
-- checks Wrangler auth
-- creates the KV namespace if needed
-- creates the R2 bucket if needed
-- stores `NOTION_API_KEY` as a Cloudflare secret
-- deploys the worker
-
-### 7. Verify the mirror
-
-After deploy, verify:
-
-```sh
-bun run warm:notion
-```
-
-Then check:
-
-1. `https://<your-domain>/`
-2. `https://<your-domain>/sitemap.xml`
-3. one representative child page
-4. any configured short links
-5. `http://localhost:8788/`
-6. `bun run logs` if something looks wrong
-
-If you want Codex to help after scaffolding, the generated repo also includes repo-local skills:
-
-- `.codex/skills/setup-notion-mirror/`
-- `.codex/skills/site-warmup/`
-
-Generated mirror repos include:
-
-- `wrangler.toml` with project-specific Cloudflare bindings and vars
-- `deploy.sh` to create KV/R2 resources and publish the worker
-- `scripts/setup.ts` to create `.env` and `.dev.vars`
-- `.codex/skills/setup-notion-mirror/` and `.codex/skills/site-warmup/` for Codex/Claude-driven setup
-- cache warming scripts for cheap rerenders vs full Notion refreshes
-
-## Legacy starter
-
-The original NoteHost worker starter still exists below.
-
-<br/>
-
-## How to use the legacy starter:
-
-### Setup your Cloudflare account
-
----
-
-1. Add your domain to Cloudflare. Make sure that DNS doesn't have `A` records for your domain and no `CNAME` alias for `www`
-2. Create a new worker on Cloudflare and give it a meaningful name, e.g. `yourdomain-com-notion-proxy`
-3. Keep the default example worker code, we will overwrite it anyway during deploy (see below)
-
-> [!TIP]
-> A bit outdated but detailed description on how to add your domain to Cloudflare and create a worker is [here](https://stephenou.notion.site/stephenou/Fruition-Free-Open-Source-Toolkit-for-Building-Websites-with-Notion-771ef38657244c27b9389734a9cbff44).
->
-> Search for "Step 1: Set up your Cloudflare account".
->
-> If someone wishes to create an up-to-date tutorial for NoteHost, please submit a pull request 😉
-
-<br/>
-
-### Generate your NoteHost worker
-
----
-
-Go into your working directory and run:
-
-```sh
-npx notehost init <domain>
-```
-
-Follow the prompts to confirm your domain name and enter the requested information. You can change these settings later via the configuration file.
-
-NoteHost will create a directory with the name of your domain. In this directory you will see the following files:
+## Project structure
 
 ```
-.
-├── build-page-script-js-string.sh    helper script, details below
-├── package.json                      test & deploy your website, see realtime logs
-├── tsconfig.json                     types config
-├── wrangler.toml                     your Cloudflare worker config
-└── src
-    ├── _page-script-js-string.ts     generated by helper script
-    ├── index.ts                      runs reverse proxy
-    ├── page-script.js                your custom JS page script
-    └── site-config.ts                your domain and website config
+notion-mirror-generator/
+├── skills/
+│   ├── setup-notion-mirror/     # Main entry-point skill
+│   ├── setup-cloudflare/         # Cloudflare account + auth helper
+│   └── site-warmup/              # Warm cache after template changes
+├── templates/
+│   └── notion-mirror/            # Source template — scaffolded into each new site
+│       ├── src/                  # Worker code (Hono, renderer, cache, template)
+│       ├── scripts/              # Local backup, serve, warm, setup scripts
+│       ├── wrangler.toml         # Cloudflare config with EJS placeholders
+│       └── deploy.sh             # One-shot deploy script
+├── src/cli/                      # The generator CLI itself (init-mirror command)
+└── data/                         # Generated sites live here (gitignored)
+    └── sites/<slug>/             # Each site is a full standalone project
 ```
 
-Go into this directory and run
+## For AI agents
 
-```sh
-npm install
-```
+This repo is a **Claude Code skill**. If you're an AI assistant invoked in this directory, the main entry point is the `setup-notion-mirror` skill at `skills/setup-notion-mirror/SKILL.md`. It:
 
-<br/>
+- Asks local-only vs full-deploy first
+- Delegates Cloudflare setup to `setup-cloudflare` skill
+- Delegates cache warming guidance to `site-warmup` skill
+- Produces a fully-configured site in `data/sites/<slug>/`
 
-### Configure your domain
+Generated sites are **gitignored** — never commit anything under `data/`. Each generated site is standalone and has its own git repo if the user wants one.
 
----
+Template files use EJS placeholders (`<%- jsString(foo) %>`) that get rendered at scaffold time. Runtime config is read from `wrangler.toml` via `readWranglerVars()` in `scripts/site-data.ts` — this is the single source of truth, not the EJS defaults.
 
-Make sure that wrangler is authenticated with your Cloudflare account
+## License
 
-```sh
-npx wrangler login
-```
-
-1. Edit `wrangler.toml` and make sure that the `name` field matches your worker name in Cloudflare
-2. Edit `site-config.ts` and set all the necessary options: domain, metadata, slugs, subdomain redirects, etc. All settings should be self explanatory, I hope 😊
-
-```ts filename="src/site-config.ts"
-import { NoteHostSiteConfig, googleTag } from 'notehost'
-import { PAGE_SCRIPT_JS_STRING } from './_page-script-js-string'
-
-// Set this to your Google Tag ID from Google Analytics
-const GOOGLE_TAG_ID = ''
-
-export const SITE_CONFIG: NoteHostSiteConfig = {
-  domain: 'yourdomain.com',
-
-  // Metatags, optional
-  // For main page link preview
-  siteName: 'My Notion Website',
-  siteDescription: 'Build your own website with Notion. This is a demo site.',
-  siteImage: 'https://imagehosting.com/images/preview.jpg',
-
-  // URL to custom favicon.ico
-  siteIcon: 'https://imagehosting.com/images/favicon.ico',
-
-  // Social media links, optional
-  twitterHandle: '@mytwitter',
-
-  // Additional safety: avoid serving extraneous Notion content from your website
-  // Use the value from your Notion settings => Workspace => Settings => Domain
-  notionDomain: 'mydomain',
-
-  // Map slugs (short page names) to Notion page IDs
-  // Empty slug is your main page
-  slugToPage: {
-    '': 'NOTION_PAGE_ID',
-    about: 'NOTION_PAGE_ID',
-    contact: 'NOTION_PAGE_ID',
-    // Hint: you can use '/' in slug name to create subpages
-    'about/people': 'NOTION_PAGE_ID',
-  },
-
-  // Rewrite meta tags for specific pages
-  // Use the Notion page ID as the key
-  pageMetadata: {
-    'NOTION_PAGE_ID': {
-      title: 'My Custom Page Title',
-      description: 'My custom page description',
-      image: 'https://imagehosting.com/images/page_preview.jpg',
-      author: 'My Name',
-    },
-  },
-
-  // Subdomain redirects are optional
-  // But it is recommended to have one for www
-  subDomains: {
-    www: {
-      redirect: 'https://yourdomain.com',
-    },
-  },
-
-  // The 404 (not found) page is optional
-  // If you don't have one, the default 404 page will be used
-  fof: {
-    page: 'NOTION_PAGE_ID',
-    slug: '404', // default
-  },
-
-  // Google Font name, you can choose from https://fonts.google.com
-  googleFont: 'Roboto',
-
-  // Custom CSS/JS for head and body of a Notion page
-  customHeadCSS: `
-  .notion-topbar {
-    background: lightblue
-  }`,
-  customHeadJS: googleTag(GOOGLE_TAG_ID),
-  customBodyJS: PAGE_SCRIPT_JS_STRING,
-}
-```
-
-<br/>
-
-### Deploy your website
-
----
-
-```sh
-npm run deploy
-```
-
-🎉 Enjoy your Notion website on your own domain! 🎉
-
-> [!IMPORTANT]
-> You need to run deploy every time you update `page-script.js` or `site-config.ts`.
-
-<br/>
-
-### What is build-page-script-js-string.sh?
-
----
-
-The file `src/page-script.js` contains an example of a page script that you can run on your Notion pages.
-This example script removes tooltips from images and hides optional properties in database cards.
-
-🔥 This script is run in the web browser! 🔥
-
-You can use `document`, `window` and all the functionality of a web browser to control the contents and behavior of your Notion pages.
-Also, because this is a JS file, you can edit it in your code editor with syntax highlighting and intellisense!
-
-To incorporate this script into a Notion page, NoteHost must transform the file's contents into a string. Consequently, the `build-page-script-js-string.sh` script is executed whenever you run `npm run deploy`.
-
-So just add your JS magic to `page-script.js`, run deploy and everything else will happen automagically 😎
-
-<br/>
-
-### Logs
-
----
-
-You can see realtime logs from your website by running
-
-```sh
-npm run logs
-```
-
-<br/>
-
-### Demo
-
----
-
-https://www.velsa.net
-
-<br/>
-
-### Acknowledgments
-
----
-
-Based on [Fruition](https://fruitionsite.com), which is no longer maintained 😕
-
-Lots of thanks to [@DudeThatsErin](https://github.com/DudeThatsErin) and her [code snippet](https://github.com/stephenou/fruitionsite/issues/258#issue-1929516345).
+MIT. Based on the original [NoteHost](https://github.com/velsa/notehost) project by Vels Lobak.

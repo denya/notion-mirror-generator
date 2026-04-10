@@ -89,14 +89,22 @@ When the user asks how to get the values, explain concretely:
 
 If they paste a full Notion URL, extract the page ID for them instead of making them do it manually.
 
-### 4. Help the user gather Cloudflare/Wrangler prerequisites
+### 4. Help the user set up Cloudflare prerequisites
 
-Confirm or explain:
+Invoke the **setup-cloudflare** skill to handle:
 
-1. The domain is on Cloudflare.
-2. The target hostname is proxied through Cloudflare.
-3. Wrangler auth is available via `bunx wrangler login` or `CLOUDFLARE_API_TOKEN`.
-4. The token or login can manage Workers, routes/custom domains, KV, R2, and secrets.
+1. Wrangler CLI verification (the generated repo has `wrangler ^4` as a devDependency; `bun install` handles it)
+2. Cloudflare account creation if needed
+3. Authentication via `bunx wrangler login` or `CLOUDFLARE_API_TOKEN`
+4. DNS zone setup: the target domain must be on Cloudflare for `custom_domain = true` to work
+5. Subdomain configuration if using a subdomain like `mirror.example.com`
+6. Verification of auth and zone status
+
+The setup-cloudflare skill reports back with a deployment mode:
+
+- **custom_domain**: Zone is active, auth works. Proceed with `custom_domain = true` in wrangler.toml.
+- **workers_dev_only**: User chose workers.dev URL only. Comment out or remove the `routes` array in wrangler.toml and keep `workers_dev = true`.
+- **deferred**: DNS change is pending (nameserver propagation). Proceed with scaffolding and local backup. Return to deployment when the zone is active.
 
 Skip this whole step when the user explicitly wants local-only today.
 

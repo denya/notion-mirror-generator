@@ -178,6 +178,7 @@ function buildEnv(): Env {
     GOOGLE_TAG_ID: process.env.GOOGLE_TAG_ID || vars.GOOGLE_TAG_ID,
     SHORT_LINKS_JSON: process.env.SHORT_LINKS_JSON || vars.SHORT_LINKS_JSON || '{}',
     SHORT_LINK_REDIRECT_STATUS: process.env.SHORT_LINK_REDIRECT_STATUS || vars.SHORT_LINK_REDIRECT_STATUS || '302',
+    ENABLE_TOC: process.env.ENABLE_TOC || vars.ENABLE_TOC,
   }
 }
 

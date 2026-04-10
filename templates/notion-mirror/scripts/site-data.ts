@@ -120,17 +120,43 @@ export function readWranglerVars(): Record<string, string> {
   const tomlPath = fileURLToPath(new URL('../wrangler.toml', import.meta.url))
   const raw = readFileSync(tomlPath, 'utf8')
   const vars: Record<string, string> = {}
+  const lines = raw.split('\n')
 
   let inVars = false
-  for (const line of raw.split('\n')) {
+  let multiLineKey: string | null = null
+  let multiLineAccum: string[] = []
+
+  for (const line of lines) {
     const trimmed = line.trim()
+
+    // Handle multi-line literal string accumulation (TOML ''')
+    if (multiLineKey !== null) {
+      if (trimmed === "'''") {
+        vars[multiLineKey] = multiLineAccum.join('\n').trim()
+        multiLineKey = null
+        multiLineAccum = []
+      } else {
+        multiLineAccum.push(line)
+      }
+      continue
+    }
+
     if (trimmed === '[vars]') { inVars = true; continue }
-    if (inVars && /^\[/.test(trimmed)) break
+    if (inVars && /^\[/.test(trimmed) && trimmed !== '[vars]') break
     if (!inVars || !trimmed.includes('=') || trimmed.startsWith('#')) continue
 
     const eqIdx = trimmed.indexOf('=')
     const key = trimmed.slice(0, eqIdx).trim()
     let value = trimmed.slice(eqIdx + 1).trim()
+
+    // Multi-line literal string opening
+    if (value === "'''") {
+      multiLineKey = key
+      multiLineAccum = []
+      continue
+    }
+
+    // Strip surrounding quotes
     if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
       value = value.slice(1, -1)
     }

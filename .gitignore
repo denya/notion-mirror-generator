@@ -175,3 +175,6 @@ dist
 .omx/
 .claude/
 spain.denyamsk.ru/.cache/
+
+# Generated sites (local-only, never commit)
+data/

@@ -1281,7 +1281,7 @@ function renderHeader(config: SiteConfig, breadcrumbs: Breadcrumb[] | undefined,
       <a href="/" class="site-brand" aria-label="${escapeAttr(config.brandName)} home">
         <img src="${logoUrl}" alt="${escapeAttr(config.brandName)} logo" class="site-brand-logo">
         <span class="site-brand-copy">
-          <span class="site-header-label">Notion mirror</span>
+          <span class="site-header-label">${escapeHtml(config.siteName)}</span>
           <span class="site-header-name">${escapeHtml(config.brandName)}</span>
         </span>
       </a>

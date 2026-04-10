@@ -3,7 +3,7 @@ import type { Env } from './config'
 import { getConfig } from './config'
 import { fetchPageAncestors, fetchPageData, collectBookmarkUrls, getPageCover, getPageIcon, type Block, type PageData, warmBookmarkMetadata } from './notion-client'
 import { renderGoogleTagScript, renderPage } from './template'
-import { getCachedPage, getCachedPageMetadataIndex, getCachedSitemap, isCachedPageFresh, isCachedSitemapFresh, setCachedAssetMetadataBatch, setCachedPage, setCachedSitemap, upsertCachedPageMetadata } from './cache'
+import { getCachedPage, getCachedSitemap, isCachedPageFresh, isCachedSitemapFresh, listCachedPageMetadata, setCachedAssetMetadataBatch, setCachedPage, setCachedPageMetadata, setCachedSitemap } from './cache'
 import { handleImageProxy, warmImageCache } from './image-proxy'
 import { handleAssetProxy } from './asset-proxy'
 import { escapeHtml } from './rich-text'
@@ -196,7 +196,7 @@ async function fetchAndCachePage(env: Env, config: ReturnType<typeof getConfig>,
   const html = renderPage(pageData, config, breadcrumbs)
   const cachedAt = Date.now()
   await setCachedPage(env, pageId, html, config.cacheTtlSeconds)
-  await upsertCachedPageMetadata(env, {
+  await setCachedPageMetadata(env, {
     pageId: pageData.page.id,
     path: canonicalPath,
     title,
@@ -250,13 +250,13 @@ function scheduleSitemapRefresh(env: Env, config: ReturnType<typeof getConfig>):
 }
 
 async function getIndexedSitemapEntries(env: Env, config: ReturnType<typeof getConfig>): Promise<SitemapEntry[]> {
-  const pageIndex = await getCachedPageMetadataIndex(env)
-  if (!pageIndex) {
+  const pages = await listCachedPageMetadata(env)
+  if (!pages.length) {
     return []
   }
 
   return normalizeSitemapEntries([
-    ...pageIndex.pages.map((page) => page.lastModified ? { path: page.path, lastModified: page.lastModified } : { path: page.path }),
+    ...pages.map((page) => page.lastModified ? { path: page.path, lastModified: page.lastModified } : { path: page.path }),
     ...staticSitemapEntries(config),
   ])
 }

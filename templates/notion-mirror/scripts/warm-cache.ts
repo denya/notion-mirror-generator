@@ -238,15 +238,16 @@ const sitemapEntriesToUpload = persistedSitemapEntries.length ? persistedSitemap
 const persistedPageMetadata = [...pageMetadataEntries.values()].sort((left, right) => left.path.localeCompare(right.path))
 await writeCachedSitemapEntries(persistedSitemapEntries)
 await putRemoteKvValue('sitemap', JSON.stringify({ entries: sitemapEntriesToUpload, cachedAt: Date.now() }))
-await putRemoteKvValue('page-index', JSON.stringify({
-  pages: persistedPageMetadata,
-  cachedAt: Date.now(),
-}))
+await Promise.all(
+  persistedPageMetadata.map((entry) =>
+    putRemoteKvValue(`page-meta:${normalizePageId(entry.pageId)}`, JSON.stringify(entry)),
+  ),
+)
 
 console.log(
   `Warmed ${seenPages.size - skippedPages.length} page(s), uploaded ${warmedImages.size - initialWarmedImagesCount} new image(s), uploaded ${warmedAssets.size - initialWarmedAssetsCount} new asset(s), reused ${reusedImageCount} cached image hit(s), reused ${reusedAssetCount} cached asset hit(s), using ${localSnapshotCount} local snapshot(s) and ${notionFetchCount} Notion fetch(es).`,
 )
-console.log(`Persisted sitemap with ${sitemapEntriesToUpload.length} URL(s) and page index with ${persistedPageMetadata.length} entr${persistedPageMetadata.length === 1 ? 'y' : 'ies'}.`)
+console.log(`Persisted sitemap with ${sitemapEntriesToUpload.length} URL(s) and ${persistedPageMetadata.length} page metadata entr${persistedPageMetadata.length === 1 ? 'y' : 'ies'}.`)
 if (skippedPages.length) {
   console.log(`Skipped ${skippedPages.length} page(s) not accessible to the integration:`)
   for (const skipped of skippedPages) {
@@ -278,6 +279,10 @@ function buildEnv(): Env {
 
 function staticFallbackSitemapEntries(): SitemapEntry[] {
   return [{ path: '/' }]
+}
+
+function normalizePageId(pageId: string): string {
+  return pageId.replace(/-/g, '').toLowerCase()
 }
 
 function toPageId(input: string, rootPageId: string): string {

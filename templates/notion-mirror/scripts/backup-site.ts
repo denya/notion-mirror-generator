@@ -42,8 +42,12 @@ const config = getConfig(env)
 const pageQueue = pageInputs.length ? pageInputs.map((value) => toPageId(value, env.ROOT_PAGE_ID)) : [env.ROOT_PAGE_ID]
 const pageDataById = new Map<string, PageData>()
 const routeEntries: LocalRouteEntry[] = []
-const imageEntries = new Map<string, LocalBinaryAssetEntry>()
-const assetEntries = new Map<string, LocalBinaryAssetEntry>()
+const imageEntries = new Map<string, LocalBinaryAssetEntry>(
+  ((await readJsonFile<LocalBinaryAssetEntry[]>(localImagesManifestPath(siteKey))) || []).map((entry) => [entry.key, entry]),
+)
+const assetEntries = new Map<string, LocalBinaryAssetEntry>(
+  ((await readJsonFile<LocalBinaryAssetEntry[]>(localAssetsManifestPath(siteKey))) || []).map((entry) => [entry.key, entry]),
+)
 const visitedPageIds = new Set<string>()
 const sourceMode = workspaceMode ? 'workspace' : 'root-crawl'
 let fetchedFromNotion = 0
@@ -244,10 +248,11 @@ async function ensureLocalImages(originUrls: Iterable<string>): Promise<Map<stri
   const localPaths = new Map<string, string>()
 
   for (const originUrl of originUrls) {
-    const localPath = `/assets/images/${createHash('sha1').update(originUrl).digest('hex')}`
+    const existingEntry = imageEntries.get(originUrl)
+    const localPath = existingEntry?.localPath || `/assets/images/${createHash('sha1').update(originUrl).digest('hex')}`
     localPaths.set(originUrl, localPath)
 
-    if (!imageEntries.has(originUrl)) {
+    if (!existingEntry || !(await fileExists(staticBinaryFilePath(siteKey, existingEntry.localPath)))) {
       const { contentType } = await downloadBinary(originUrl, staticBinaryFilePath(siteKey, localPath))
       imageEntries.set(originUrl, {
         key: originUrl,
@@ -266,10 +271,11 @@ async function ensureLocalAssets(assets: AssetMetadata[]): Promise<Map<string, s
   const localPaths = new Map<string, string>()
 
   for (const asset of assets) {
-    const localPath = `/assets/files/${asset.id}`
+    const existingEntry = assetEntries.get(asset.id)
+    const localPath = existingEntry?.localPath || `/assets/files/${asset.id}`
     localPaths.set(asset.id, localPath)
 
-    if (!assetEntries.has(asset.id)) {
+    if (!existingEntry || !(await fileExists(staticBinaryFilePath(siteKey, existingEntry.localPath)))) {
       const { contentType } = await downloadBinary(asset.sourceUrl, staticBinaryFilePath(siteKey, localPath))
       assetEntries.set(asset.id, {
         key: asset.id,
@@ -285,14 +291,6 @@ async function ensureLocalAssets(assets: AssetMetadata[]): Promise<Map<string, s
 }
 
 async function downloadBinary(url: string, targetPath: string): Promise<{ contentType: string }> {
-  // Skip download if file already exists on disk (handles expired signed URLs on re-runs)
-  try {
-    const existing = await stat(targetPath)
-    if (existing.size > 0) {
-      return { contentType: guessContentType(targetPath) }
-    }
-  } catch {}
-
   await mkdir(dirname(targetPath), { recursive: true })
 
   const response = await fetch(url, {
@@ -310,14 +308,13 @@ async function downloadBinary(url: string, targetPath: string): Promise<{ conten
   return { contentType }
 }
 
-function guessContentType(path: string): string {
-  if (path.endsWith('.png')) return 'image/png'
-  if (path.endsWith('.jpg') || path.endsWith('.jpeg')) return 'image/jpeg'
-  if (path.endsWith('.gif')) return 'image/gif'
-  if (path.endsWith('.webp')) return 'image/webp'
-  if (path.endsWith('.svg')) return 'image/svg+xml'
-  if (path.endsWith('.pdf')) return 'application/pdf'
-  return 'application/octet-stream'
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    const existing = await stat(path)
+    return existing.isFile() && existing.size > 0
+  } catch {
+    return false
+  }
 }
 
 function extractImageSources(html: string): string[] {

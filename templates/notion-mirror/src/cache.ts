@@ -26,11 +26,6 @@ export interface CachedPageMetadataEntry {
   cachedAt: number
 }
 
-export interface CachedPageMetadataIndex {
-  pages: CachedPageMetadataEntry[]
-  cachedAt: number
-}
-
 export async function getCachedPage(env: Env, pageId: string): Promise<CachedPageEntry | null> {
   const raw = await env.PAGE_CACHE.get(`page:${pageId}`)
   if (!raw) {
@@ -152,49 +147,47 @@ export function isCachedOgFresh(entry: CachedOgEntry, ttlSeconds: number): boole
   return (Date.now() - entry.cachedAt) < (ttlSeconds * 1000)
 }
 
-export async function getCachedPageMetadataIndex(env: Env): Promise<CachedPageMetadataIndex | null> {
-  const raw = await env.PAGE_CACHE.get('page-index')
-  if (!raw) {
-    return null
-  }
+export async function listCachedPageMetadata(
+  env: Env,
+): Promise<CachedPageMetadataEntry[]> {
+  const pages: CachedPageMetadataEntry[] = []
+  let cursor: string | undefined
 
-  try {
-    const parsed = JSON.parse(raw) as Partial<CachedPageMetadataIndex>
-    if (!Array.isArray(parsed.pages)) {
-      return null
+  do {
+    const result = await env.PAGE_CACHE.list({ prefix: 'page-meta:', cursor })
+    for (const key of result.keys) {
+      const raw = await env.PAGE_CACHE.get(key.name)
+      if (!raw) {
+        continue
+      }
+
+      try {
+        const parsed = JSON.parse(raw) as Partial<CachedPageMetadataEntry>
+        const entry = normalizeCachedPageMetadataEntry(parsed)
+        if (entry) {
+          pages.push(entry)
+        }
+      } catch {
+        // Ignore invalid page metadata entries.
+      }
     }
 
-    const pages = normalizeCachedPageMetadataEntries(parsed.pages)
-    if (!pages.length) {
-      return null
-    }
+    cursor = result.list_complete ? undefined : result.cursor
+  } while (cursor)
 
-    return {
-      pages,
-      cachedAt: typeof parsed.cachedAt === 'number' ? parsed.cachedAt : 0,
-    }
-  } catch {
-    return null
-  }
+  return normalizeCachedPageMetadataEntries(pages)
 }
 
-export async function upsertCachedPageMetadata(
+export async function setCachedPageMetadata(
   env: Env,
   entry: Omit<CachedPageMetadataEntry, 'cachedAt'> & { cachedAt?: number },
 ): Promise<void> {
-  const current = await getCachedPageMetadataIndex(env)
-  const payload: CachedPageMetadataIndex = {
-    pages: normalizeCachedPageMetadataEntries([
-      ...(current?.pages || []),
-      {
-        ...entry,
-        cachedAt: typeof entry.cachedAt === 'number' ? entry.cachedAt : Date.now(),
-      },
-    ]),
-    cachedAt: Date.now(),
-  }
+  const payload = {
+    ...entry,
+    cachedAt: typeof entry.cachedAt === 'number' ? entry.cachedAt : Date.now(),
+  } satisfies CachedPageMetadataEntry
 
-  await env.PAGE_CACHE.put('page-index', JSON.stringify(payload))
+  await env.PAGE_CACHE.put(`page-meta:${normalizePageId(entry.pageId)}`, JSON.stringify(payload))
 }
 
 export async function getCachedImage(env: Env, key: string): Promise<R2ObjectBody | null> {
@@ -311,23 +304,12 @@ function normalizeCachedPageMetadataEntries(entries: unknown[]): CachedPageMetad
   const deduped = new Map<string, CachedPageMetadataEntry>()
 
   for (const entry of entries) {
-    if (!entry || typeof entry !== 'object') {
+    const candidate = normalizeCachedPageMetadataEntry(entry)
+    if (!candidate) {
       continue
     }
 
-    const page = entry as Partial<CachedPageMetadataEntry>
-    if (typeof page.pageId !== 'string' || typeof page.path !== 'string' || !page.path.startsWith('/')) {
-      continue
-    }
-
-    const normalizedPageId = page.pageId.replace(/-/g, '').toLowerCase()
-    const candidate: CachedPageMetadataEntry = {
-      pageId: page.pageId,
-      path: page.path,
-      title: typeof page.title === 'string' ? page.title : 'Untitled',
-      ...(typeof page.lastModified === 'string' ? { lastModified: page.lastModified } : {}),
-      cachedAt: typeof page.cachedAt === 'number' ? page.cachedAt : 0,
-    }
+    const normalizedPageId = normalizePageId(candidate.pageId)
     const existing = deduped.get(normalizedPageId)
 
     if (!existing || candidate.cachedAt >= existing.cachedAt) {
@@ -336,4 +318,27 @@ function normalizeCachedPageMetadataEntries(entries: unknown[]): CachedPageMetad
   }
 
   return [...deduped.values()].sort((left, right) => left.path.localeCompare(right.path))
+}
+
+function normalizeCachedPageMetadataEntry(entry: unknown): CachedPageMetadataEntry | null {
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+
+  const page = entry as Partial<CachedPageMetadataEntry>
+  if (typeof page.pageId !== 'string' || typeof page.path !== 'string' || !page.path.startsWith('/')) {
+    return null
+  }
+
+  return {
+    pageId: page.pageId,
+    path: page.path,
+    title: typeof page.title === 'string' ? page.title : 'Untitled',
+    ...(typeof page.lastModified === 'string' ? { lastModified: page.lastModified } : {}),
+    cachedAt: typeof page.cachedAt === 'number' ? page.cachedAt : 0,
+  }
+}
+
+function normalizePageId(pageId: string): string {
+  return pageId.replace(/-/g, '').toLowerCase()
 }

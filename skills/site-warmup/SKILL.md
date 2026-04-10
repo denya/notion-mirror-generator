@@ -1,6 +1,7 @@
 ---
 name: site-warmup
 description: Warm a generated Notion mirror cache after renderer, template, or content changes.
+user-invocable: true
 ---
 
 # Site Warmup

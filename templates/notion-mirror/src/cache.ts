@@ -18,6 +18,19 @@ export interface CachedSitemapEntry {
   cachedAt: number
 }
 
+export interface CachedPageMetadataEntry {
+  pageId: string
+  path: string
+  title: string
+  lastModified?: string
+  cachedAt: number
+}
+
+export interface CachedPageMetadataIndex {
+  pages: CachedPageMetadataEntry[]
+  cachedAt: number
+}
+
 export async function getCachedPage(env: Env, pageId: string): Promise<CachedPageEntry | null> {
   const raw = await env.PAGE_CACHE.get(`page:${pageId}`)
   if (!raw) {
@@ -64,6 +77,10 @@ export async function getCachedSitemap(env: Env): Promise<CachedSitemapEntry | n
         .filter((entry): entry is SitemapEntry => !!entry && typeof entry.path === 'string' && entry.path.startsWith('/'))
         .map((entry) => entry.lastModified ? { path: entry.path, lastModified: entry.lastModified } : { path: entry.path })
 
+      if (!entries.length) {
+        return null
+      }
+
       return {
         entries,
         cachedAt: typeof parsed.cachedAt === 'number' ? parsed.cachedAt : 0,
@@ -108,9 +125,7 @@ export async function setCachedOgMetadata(env: Env, url: string, metadata: OgMet
     cachedAt: Date.now(),
   }
 
-  await env.PAGE_CACHE.put(`og:${ogKey(url)}`, JSON.stringify(payload), {
-    expirationTtl: metadata ? 60 * 60 * 24 * 7 : 60 * 60,
-  })
+  await env.PAGE_CACHE.put(`og:${ogKey(url)}`, JSON.stringify(payload))
 }
 
 export function isCachedPageFresh(entry: CachedPageEntry, ttlSeconds: number): boolean {
@@ -127,6 +142,59 @@ export function isCachedSitemapFresh(entry: CachedSitemapEntry, ttlSeconds: numb
   }
 
   return (Date.now() - entry.cachedAt) < (ttlSeconds * 1000)
+}
+
+export function isCachedOgFresh(entry: CachedOgEntry, ttlSeconds: number): boolean {
+  if (!entry.cachedAt) {
+    return false
+  }
+
+  return (Date.now() - entry.cachedAt) < (ttlSeconds * 1000)
+}
+
+export async function getCachedPageMetadataIndex(env: Env): Promise<CachedPageMetadataIndex | null> {
+  const raw = await env.PAGE_CACHE.get('page-index')
+  if (!raw) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<CachedPageMetadataIndex>
+    if (!Array.isArray(parsed.pages)) {
+      return null
+    }
+
+    const pages = normalizeCachedPageMetadataEntries(parsed.pages)
+    if (!pages.length) {
+      return null
+    }
+
+    return {
+      pages,
+      cachedAt: typeof parsed.cachedAt === 'number' ? parsed.cachedAt : 0,
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function upsertCachedPageMetadata(
+  env: Env,
+  entry: Omit<CachedPageMetadataEntry, 'cachedAt'> & { cachedAt?: number },
+): Promise<void> {
+  const current = await getCachedPageMetadataIndex(env)
+  const payload: CachedPageMetadataIndex = {
+    pages: normalizeCachedPageMetadataEntries([
+      ...(current?.pages || []),
+      {
+        ...entry,
+        cachedAt: typeof entry.cachedAt === 'number' ? entry.cachedAt : Date.now(),
+      },
+    ]),
+    cachedAt: Date.now(),
+  }
+
+  await env.PAGE_CACHE.put('page-index', JSON.stringify(payload))
 }
 
 export async function getCachedImage(env: Env, key: string): Promise<R2ObjectBody | null> {
@@ -237,4 +305,35 @@ function normalizedSearch(url: URL): string {
 function isTransientSignedParam(key: string): boolean {
   const normalized = key.toLowerCase()
   return normalized.startsWith('x-amz-') || normalized === 'x-id'
+}
+
+function normalizeCachedPageMetadataEntries(entries: unknown[]): CachedPageMetadataEntry[] {
+  const deduped = new Map<string, CachedPageMetadataEntry>()
+
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object') {
+      continue
+    }
+
+    const page = entry as Partial<CachedPageMetadataEntry>
+    if (typeof page.pageId !== 'string' || typeof page.path !== 'string' || !page.path.startsWith('/')) {
+      continue
+    }
+
+    const normalizedPageId = page.pageId.replace(/-/g, '').toLowerCase()
+    const candidate: CachedPageMetadataEntry = {
+      pageId: page.pageId,
+      path: page.path,
+      title: typeof page.title === 'string' ? page.title : 'Untitled',
+      ...(typeof page.lastModified === 'string' ? { lastModified: page.lastModified } : {}),
+      cachedAt: typeof page.cachedAt === 'number' ? page.cachedAt : 0,
+    }
+    const existing = deduped.get(normalizedPageId)
+
+    if (!existing || candidate.cachedAt >= existing.cachedAt) {
+      deduped.set(normalizedPageId, candidate)
+    }
+  }
+
+  return [...deduped.values()].sort((left, right) => left.path.localeCompare(right.path))
 }

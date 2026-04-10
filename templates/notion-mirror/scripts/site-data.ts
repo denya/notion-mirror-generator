@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +12,8 @@ export interface LocalRouteEntry {
   path: string
   htmlPath: string
   lastEditedTime?: string
+  parentPageId?: string | null
+  depth?: number
 }
 
 export interface LocalSiteManifest {
@@ -107,4 +110,33 @@ export async function writeJsonFile(path: string, value: unknown): Promise<void>
 export async function writeTextFile(path: string, value: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, value)
+}
+
+let cachedWranglerVars: Record<string, string> | null = null
+
+export function readWranglerVars(): Record<string, string> {
+  if (cachedWranglerVars) return cachedWranglerVars
+
+  const tomlPath = fileURLToPath(new URL('../wrangler.toml', import.meta.url))
+  const raw = readFileSync(tomlPath, 'utf8')
+  const vars: Record<string, string> = {}
+
+  let inVars = false
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed === '[vars]') { inVars = true; continue }
+    if (inVars && /^\[/.test(trimmed)) break
+    if (!inVars || !trimmed.includes('=') || trimmed.startsWith('#')) continue
+
+    const eqIdx = trimmed.indexOf('=')
+    const key = trimmed.slice(0, eqIdx).trim()
+    let value = trimmed.slice(eqIdx + 1).trim()
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
+    if (key) vars[key] = value
+  }
+
+  cachedWranglerVars = vars
+  return vars
 }

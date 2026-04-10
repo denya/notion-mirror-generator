@@ -24,6 +24,7 @@ import {
   writeCachedWorkspacePageIds,
 } from './local-cache'
 import { normalizeSitemapEntries, sitemapEntryFromPage, type SitemapEntry } from '../src/sitemap'
+import { readWranglerVars } from './site-data'
 
 const env = buildEnv()
 const config = getConfig(env)
@@ -38,6 +39,7 @@ const seenPages = new Set<string>()
 const warmedImages = refreshImages ? new Set<string>() : await readCachedWarmedImages()
 const warmedAssets = await readCachedWarmedAssets()
 const sitemapEntries = new Map<string, SitemapEntry>((await readCachedSitemapEntries()).map((entry) => [entry.path, entry]))
+const pageMetadataEntries = new Map<string, { pageId: string; path: string; title: string; lastModified?: string; cachedAt: number }>()
 const skippedPages: Array<{ pageId: string; reason: string }> = []
 const PAGE_DELAY_MS = Number(process.env.WARM_PAGE_DELAY_MS || '350')
 const IMAGE_DELAY_MS = Number(process.env.WARM_IMAGE_DELAY_MS || '150')
@@ -204,6 +206,13 @@ while (pageQueue.length) {
 
   const sitemapEntry = sitemapEntryFromPage(pageData.page.id, title, config.rootPageId, pageData.page.last_edited_time)
   sitemapEntries.set(sitemapEntry.path, sitemapEntry)
+  pageMetadataEntries.set(pageData.page.id.replace(/-/g, '').toLowerCase(), {
+    pageId: pageData.page.id,
+    path: sitemapEntry.path,
+    title,
+    ...(pageData.page.last_edited_time ? { lastModified: pageData.page.last_edited_time } : {}),
+    cachedAt: Date.now(),
+  })
 
   for (const child of pageData.childPages) {
     if (!seenPages.has(child.id) && !pageQueue.includes(child.id)) {
@@ -225,13 +234,19 @@ while (pageQueue.length) {
 await writeCachedWarmedImages(warmedImages)
 await writeCachedWarmedAssets(warmedAssets)
 const persistedSitemapEntries = normalizeSitemapEntries(sitemapEntries.values())
+const sitemapEntriesToUpload = persistedSitemapEntries.length ? persistedSitemapEntries : staticFallbackSitemapEntries()
+const persistedPageMetadata = [...pageMetadataEntries.values()].sort((left, right) => left.path.localeCompare(right.path))
 await writeCachedSitemapEntries(persistedSitemapEntries)
-await putRemoteKvValue('sitemap', JSON.stringify({ entries: persistedSitemapEntries, cachedAt: Date.now() }))
+await putRemoteKvValue('sitemap', JSON.stringify({ entries: sitemapEntriesToUpload, cachedAt: Date.now() }))
+await putRemoteKvValue('page-index', JSON.stringify({
+  pages: persistedPageMetadata,
+  cachedAt: Date.now(),
+}))
 
 console.log(
   `Warmed ${seenPages.size - skippedPages.length} page(s), uploaded ${warmedImages.size - initialWarmedImagesCount} new image(s), uploaded ${warmedAssets.size - initialWarmedAssetsCount} new asset(s), reused ${reusedImageCount} cached image hit(s), reused ${reusedAssetCount} cached asset hit(s), using ${localSnapshotCount} local snapshot(s) and ${notionFetchCount} Notion fetch(es).`,
 )
-console.log(`Persisted sitemap with ${persistedSitemapEntries.length} URL(s).`)
+console.log(`Persisted sitemap with ${sitemapEntriesToUpload.length} URL(s) and page index with ${persistedPageMetadata.length} entr${persistedPageMetadata.length === 1 ? 'y' : 'ies'}.`)
 if (skippedPages.length) {
   console.log(`Skipped ${skippedPages.length} page(s) not accessible to the integration:`)
   for (const skipped of skippedPages) {
@@ -245,18 +260,24 @@ function buildEnv(): Env {
     throw new Error('NOTION_API_KEY must be set in the environment to warm the cache.')
   }
 
+  const vars = readWranglerVars()
+
   return {
     NOTION_API_KEY: notionApiKey,
     PAGE_CACHE: null as unknown as KVNamespace,
     IMAGE_STORE: null as unknown as R2Bucket,
-    ROOT_PAGE_ID: process.env.ROOT_PAGE_ID || <%- jsString(rootPageId) %>,
-    SITE_DOMAIN: process.env.SITE_DOMAIN || <%- jsString(domainName) %>,
-    SITE_NAME: process.env.SITE_NAME || <%- jsString(siteName) %>,
-    SITE_DESCRIPTION: process.env.SITE_DESCRIPTION || <%- jsString(siteDescription) %>,
-    CACHE_TTL_SECONDS: process.env.CACHE_TTL_SECONDS || '86400',
-    NOTION_WORKSPACE_SLUG: process.env.NOTION_WORKSPACE_SLUG || <%- jsString(notionWorkspaceSlug) %>,
-    GOOGLE_TAG_ID: process.env.GOOGLE_TAG_ID,
+    ROOT_PAGE_ID: process.env.ROOT_PAGE_ID || vars.ROOT_PAGE_ID || '',
+    SITE_DOMAIN: process.env.SITE_DOMAIN || vars.SITE_DOMAIN || '',
+    SITE_NAME: process.env.SITE_NAME || vars.SITE_NAME || '',
+    SITE_DESCRIPTION: process.env.SITE_DESCRIPTION || vars.SITE_DESCRIPTION || '',
+    CACHE_TTL_SECONDS: process.env.CACHE_TTL_SECONDS || vars.CACHE_TTL_SECONDS || '86400',
+    NOTION_WORKSPACE_SLUG: process.env.NOTION_WORKSPACE_SLUG || vars.NOTION_WORKSPACE_SLUG || '',
+    GOOGLE_TAG_ID: process.env.GOOGLE_TAG_ID || vars.GOOGLE_TAG_ID,
   }
+}
+
+function staticFallbackSitemapEntries(): SitemapEntry[] {
+  return [{ path: '/' }]
 }
 
 function toPageId(input: string, rootPageId: string): string {

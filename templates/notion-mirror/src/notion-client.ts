@@ -1,6 +1,6 @@
 import type { Env } from './config'
-import { getCachedOgMetadata, setCachedOgMetadata } from './cache'
-import { fetchOgMetadata, type OgMetadata } from './og-metadata'
+import { getCachedOgMetadata, isCachedOgFresh, setCachedOgMetadata } from './cache'
+import { fetchOgMetadata, getKnownOgMetadata, type OgMetadata } from './og-metadata'
 import { extractPageId, pagePath } from './page-path'
 
 const NOTION_API = 'https://api.notion.com/v1'
@@ -8,6 +8,7 @@ const NOTION_VERSION = '2022-06-28'
 const CHILD_FETCH_CONCURRENCY = 12
 const PUBLIC_NOTION_API = 'https://www.notion.so/api/v3/loadPageChunk'
 const MAX_BLOCK_DEPTH = 6
+const OG_METADATA_REVALIDATE_SECONDS = 60 * 60 * 24 * 7
 
 export interface RichTextItem {
   type: string
@@ -401,9 +402,7 @@ async function attachBookmarkMetadata(env: Env, blocks: Block[]): Promise<void> 
       return
     }
 
-    const metadata = await fetchOgMetadata(url)
-    metadataByUrl.set(url, metadata)
-    await setCachedOgMetadata(env, url, metadata).catch(() => undefined)
+    metadataByUrl.set(url, getKnownOgMetadata(url))
   })
 
   for (const [url, matchedBlocks] of urlToBlocks) {
@@ -416,6 +415,43 @@ async function attachBookmarkMetadata(env: Env, blocks: Block[]): Promise<void> 
       }
     }
   }
+}
+
+export function collectBookmarkUrls(blocks: Block[]): string[] {
+  const urls = new Set<string>()
+
+  const visit = (items: Block[]) => {
+    for (const block of items) {
+      const url = getBookmarkUrl(block)
+      if (url) {
+        urls.add(url)
+      }
+
+      if (block._children?.length) {
+        visit(block._children)
+      }
+    }
+  }
+
+  visit(blocks)
+  return [...urls]
+}
+
+export async function warmBookmarkMetadata(env: Env, urls: Iterable<string>): Promise<void> {
+  const uniqueUrls = [...new Set(urls)].filter((url) => typeof url === 'string' && url.length > 0)
+  if (!uniqueUrls.length) {
+    return
+  }
+
+  await mapWithConcurrency(uniqueUrls, 4, async (url) => {
+    const cached = await getCachedOgMetadata(env, url)
+    if (cached && isCachedOgFresh(cached, OG_METADATA_REVALIDATE_SECONDS)) {
+      return
+    }
+
+    const metadata = await fetchOgMetadata(url)
+    await setCachedOgMetadata(env, url, metadata).catch(() => undefined)
+  })
 }
 
 function collectChildPageIds(blocks: Block[]): string[] {

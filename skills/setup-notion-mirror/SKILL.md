@@ -1,6 +1,7 @@
 ---
 name: setup-notion-mirror
 description: Scaffold and prepare a reusable Notion backup-plus-mirror for any Notion site, including private local backup, localhost rendering, Cloudflare/Wrangler setup, deployment, verification, and template customization.
+user-invocable: true
 ---
 
 # Setup Notion Mirror
@@ -41,6 +42,7 @@ Optional but usually needed:
 - short links JSON and redirect status
 - brand label, brand URL, logo URL, theme color
 - footer owner/site links
+- enable TOC: whether to show a public Table of Contents page at `/toc` with a footer link on every page (set `ENABLE_TOC = "true"` in wrangler.toml)
 - backup scope:
   - root crawl only
   - workspace-wide backup including private pages accessible to the integration
@@ -140,8 +142,10 @@ Explicit local-only verification:
 2. confirm JSON files exist under `data/sites/<site-key>/backup/pages/`
 3. run `bun run serve:local`
 4. open `http://localhost:8788/`
-5. open `http://localhost:8788/__backup/routes.json`
-6. confirm at least one representative child page renders from localhost
+5. open `http://localhost:8788/__toc` — hierarchical table of contents with public/private grouping
+6. open `http://localhost:8788/__backup/routes.json` — enriched with `parentPageId` and `depth`
+7. confirm at least one representative child page renders from localhost
+8. confirm the footer on every page links to the Table of Contents
 
 ### 7. Deploy and verify
 
@@ -163,6 +167,23 @@ Then verify:
 If verification fails, keep iterating until the blocker is understood and documented.
 
 Skip this section entirely for local-only sessions.
+
+## Backup scope and deploy rules
+
+- `bun run backup` = **public pages only** (root-crawl) — follows links reachable from the root page
+- `bun run backup:workspace` = **all accessible pages** — includes private pages the integration can see
+- The Cloudflare Worker fetches live from Notion API; it serves any page the integration can access. There is no page whitelist in the Worker itself.
+- For Cloudflare deploys, always use root-crawl backup scope. Private/workspace pages should remain local-only.
+- The `/__toc` page groups pages into "Public" and "Private / Workspace" sections with correct hierarchy.
+
+## Sharing this skill
+
+The shareable unit is the **entire `notion-mirror-generator` repo**. Zip it and share with a collaborator. The recipient:
+
+1. Unzips the repo
+2. Runs `bun install`
+3. Uses the `setup-notion-mirror` skill (or runs `node dist/cli/index.js init-mirror`) to scaffold a new mirror
+4. All templates, CLI tools, and skills are self-contained in the repo
 
 ## Handoff
 

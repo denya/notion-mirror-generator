@@ -1,23 +1,29 @@
 import { Hono } from 'hono'
 import type { Env } from './config'
 import { getConfig } from './config'
-import { fetchPageAncestors, fetchPageData } from './notion-client'
+import { fetchPageAncestors, fetchPageData, collectBookmarkUrls, getPageCover, getPageIcon, type Block, type PageData, warmBookmarkMetadata } from './notion-client'
 import { renderGoogleTagScript, renderPage } from './template'
-import { getCachedPage, getCachedSitemap, isCachedPageFresh, isCachedSitemapFresh, setCachedAssetMetadataBatch, setCachedPage, setCachedSitemap } from './cache'
-import { handleImageProxy } from './image-proxy'
+import { getCachedPage, getCachedPageMetadataIndex, getCachedSitemap, isCachedPageFresh, isCachedSitemapFresh, setCachedAssetMetadataBatch, setCachedPage, setCachedSitemap, upsertCachedPageMetadata } from './cache'
+import { handleImageProxy, warmImageCache } from './image-proxy'
 import { handleAssetProxy } from './asset-proxy'
 import { escapeHtml } from './rich-text'
-import { extractPageId } from './page-path'
+import { canonicalPagePath, extractPageId } from './page-path'
 import { getPageTitle } from './notion-client'
-import { collectSitemapEntries, renderSitemapXml, staticSitemapEntries, type SitemapEntry } from './sitemap'
+import { collectSitemapEntries, normalizeSitemapEntries, renderSitemapXml, staticSitemapEntries, type SitemapEntry } from './sitemap'
 import { buildPageBreadcrumbs } from './breadcrumbs'
 import { resolveShortLinkRedirect } from './short-links'
 import { collectPageAssetMetadata } from './document-assets'
 
 type AppEnv = { Bindings: Env }
+interface RenderedPageCacheResult {
+  html: string
+  bookmarkUrls: string[]
+  socialImageUrls: string[]
+}
 
 const app = new Hono<AppEnv>()
-const pendingPageUpdates = new Map<string, Promise<string>>()
+const pendingPageUpdates = new Map<string, Promise<RenderedPageCacheResult>>()
+let pendingSitemapUpdate: Promise<SitemapEntry[]> | null = null
 
 app.use('*', async (c, next) => {
   const config = getConfig(c.env)
@@ -39,24 +45,24 @@ app.get('/robots.txt', (c) => {
 // Sitemap
 app.get('/sitemap.xml', async (c) => {
   const config = getConfig(c.env)
+  const cached = await getCachedSitemap(c.env)
 
   try {
-    const cached = await getCachedSitemap(c.env)
     if (cached) {
       if (!isCachedSitemapFresh(cached, config.cacheTtlSeconds)) {
-        c.executionCtx.waitUntil(refreshSitemap(c.env, config).then(() => undefined))
+        c.executionCtx.waitUntil(scheduleSitemapRefresh(c.env, config).then(() => undefined))
       }
 
-      return c.body(renderSitemapXml(config.domain, cached.entries), 200, { 'content-type': 'application/xml' })
+      return xmlResponse(config.domain, cached.entries)
     }
 
-    const entries = await refreshSitemap(c.env, config)
-    const xml = renderSitemapXml(config.domain, entries)
-    return c.body(xml, 200, { 'content-type': 'application/xml' })
+    const indexedEntries = await getIndexedSitemapEntries(c.env, config)
+    c.executionCtx.waitUntil(scheduleSitemapRefresh(c.env, config).then(() => undefined))
+    return xmlResponse(config.domain, indexedEntries.length ? indexedEntries : staticSitemapEntries(config))
   } catch (e: any) {
     console.error('Sitemap refresh failed:', e?.message || e)
-    const fallbackEntries = staticSitemapEntries(config)
-    return c.body(renderSitemapXml(config.domain, fallbackEntries), 200, { 'content-type': 'application/xml' })
+    const indexedEntries = await getIndexedSitemapEntries(c.env, config)
+    return xmlResponse(config.domain, indexedEntries.length ? indexedEntries : staticSitemapEntries(config))
   }
 })
 
@@ -147,8 +153,9 @@ async function servePage(c: any, pageId: string): Promise<Response> {
 
   if (refresh) {
     try {
-      const html = await schedulePageUpdate(env, config, pageId)
-      return c.html(html)
+      const rendered = await schedulePageUpdate(env, config, pageId)
+      c.executionCtx.waitUntil(warmPageDependencies(env, rendered).then(() => undefined))
+      return c.html(rendered.html)
     } catch (e: any) {
       console.error(`Forced refresh failed for page ${pageId}:`, e?.message || e)
     }
@@ -159,41 +166,52 @@ async function servePage(c: any, pageId: string): Promise<Response> {
   if (cached) {
     const shouldRevalidate = !isCachedPageFresh(cached, config.cacheTtlSeconds)
     if (shouldRevalidate) {
-      c.executionCtx.waitUntil(schedulePageUpdate(env, config, pageId).then(() => undefined))
+      c.executionCtx.waitUntil(
+        schedulePageUpdate(env, config, pageId)
+          .then((rendered) => warmPageDependencies(env, rendered))
+          .then(() => undefined),
+      )
     }
 
     return c.html(cached.html)
   }
 
   try {
-    const html = await schedulePageUpdate(env, config, pageId)
-    return c.html(html)
+    const rendered = await schedulePageUpdate(env, config, pageId)
+    c.executionCtx.waitUntil(warmPageDependencies(env, rendered).then(() => undefined))
+    return c.html(rendered.html)
   } catch (e: any) {
     console.error(`Failed to fetch page ${pageId}:`, e?.message || e)
     return c.html(errorPage(config, 'Page not available', 'The page could not be loaded. Please try again later.'), 503)
   }
 }
 
-async function fetchAndCachePage(env: Env, config: ReturnType<typeof getConfig>, pageId: string): Promise<string> {
+async function fetchAndCachePage(env: Env, config: ReturnType<typeof getConfig>, pageId: string): Promise<RenderedPageCacheResult> {
   const pageData = await fetchPageData(env.NOTION_API_KEY, pageId, env)
   await setCachedAssetMetadataBatch(env, collectPageAssetMetadata(pageData))
   const title = getPageTitle(pageData.page)
+  const canonicalPath = canonicalPagePath(pageData.page.id, title, config.rootPageId)
   const ancestors = await fetchPageAncestors(env.NOTION_API_KEY, pageData.page, config.rootPageId)
   const breadcrumbs = buildPageBreadcrumbs(config, pageId, title, ancestors)
   const html = renderPage(pageData, config, breadcrumbs)
+  const cachedAt = Date.now()
   await setCachedPage(env, pageId, html, config.cacheTtlSeconds)
-  return html
-}
+  await upsertCachedPageMetadata(env, {
+    pageId: pageData.page.id,
+    path: canonicalPath,
+    title,
+    ...(pageData.page.last_edited_time ? { lastModified: pageData.page.last_edited_time } : {}),
+    cachedAt,
+  })
 
-async function revalidatePage(env: Env, config: ReturnType<typeof getConfig>, pageId: string): Promise<void> {
-  try {
-    await fetchAndCachePage(env, config, pageId)
-  } catch (e: any) {
-    console.error(`Background refresh failed for page ${pageId}:`, e?.message || e)
+  return {
+    html,
+    bookmarkUrls: collectBookmarkUrls(pageData.blocks),
+    socialImageUrls: collectSocialImageUrls(pageData),
   }
 }
 
-function schedulePageUpdate(env: Env, config: ReturnType<typeof getConfig>, pageId: string): Promise<string> {
+function schedulePageUpdate(env: Env, config: ReturnType<typeof getConfig>, pageId: string): Promise<RenderedPageCacheResult> {
   const existing = pendingPageUpdates.get(pageId)
   if (existing) {
     return existing
@@ -217,6 +235,110 @@ async function refreshSitemap(env: Env, config: ReturnType<typeof getConfig>): P
   const resolvedEntries = entries.length ? entries : staticSitemapEntries(config)
   await setCachedSitemap(env, resolvedEntries)
   return resolvedEntries
+}
+
+function scheduleSitemapRefresh(env: Env, config: ReturnType<typeof getConfig>): Promise<SitemapEntry[]> {
+  if (pendingSitemapUpdate) {
+    return pendingSitemapUpdate
+  }
+
+  pendingSitemapUpdate = refreshSitemap(env, config).finally(() => {
+    pendingSitemapUpdate = null
+  })
+
+  return pendingSitemapUpdate
+}
+
+async function getIndexedSitemapEntries(env: Env, config: ReturnType<typeof getConfig>): Promise<SitemapEntry[]> {
+  const pageIndex = await getCachedPageMetadataIndex(env)
+  if (!pageIndex) {
+    return []
+  }
+
+  return normalizeSitemapEntries([
+    ...pageIndex.pages.map((page) => page.lastModified ? { path: page.path, lastModified: page.lastModified } : { path: page.path }),
+    ...staticSitemapEntries(config),
+  ])
+}
+
+async function warmPageDependencies(env: Env, rendered: RenderedPageCacheResult): Promise<void> {
+  await Promise.all([
+    warmBookmarkMetadata(env, rendered.bookmarkUrls),
+    warmSocialImages(env, rendered.socialImageUrls),
+  ])
+}
+
+async function warmSocialImages(env: Env, imageUrls: string[]): Promise<void> {
+  const uniqueUrls = [...new Set(imageUrls)].filter((url) => typeof url === 'string' && /^https?:\/\//i.test(url))
+  if (!uniqueUrls.length) {
+    return
+  }
+
+  await Promise.all(uniqueUrls.map((url) => Promise.all([
+    warmImageCache(url, env, { force: true }),
+    warmImageCache(url, env, { social: true, force: true }),
+  ])))
+}
+
+function collectSocialImageUrls(pageData: PageData): string[] {
+  const urls = new Set<string>()
+  const cover = getPageCover(pageData.page)
+  const icon = getPageIcon(pageData.page)
+  const firstImage = findFirstImage(pageData.blocks)
+
+  if (cover) {
+    urls.add(cover)
+  }
+  if (firstImage) {
+    urls.add(firstImage)
+  }
+  if (icon?.startsWith('http')) {
+    urls.add(icon)
+  }
+
+  return [...urls]
+}
+
+function findFirstImage(blocks: Block[]): string | null {
+  for (const block of blocks) {
+    if (block.type === 'image') {
+      const imageUrl = getFileUrl(block.image)
+      if (imageUrl) {
+        return imageUrl
+      }
+    }
+
+    if (block._children?.length) {
+      const nested = findFirstImage(block._children)
+      if (nested) {
+        return nested
+      }
+    }
+  }
+
+  return null
+}
+
+function getFileUrl(file: any): string | null {
+  if (file?.type === 'file') {
+    return typeof file.file?.url === 'string' ? file.file.url : null
+  }
+
+  if (file?.type === 'external') {
+    return typeof file.external?.url === 'string' ? file.external.url : null
+  }
+
+  return null
+}
+
+function xmlResponse(domain: string, entries: SitemapEntry[]): Response {
+  return new Response(renderSitemapXml(domain, entries), {
+    status: 200,
+    headers: {
+      'content-type': 'application/xml',
+      'cache-control': 'public, max-age=300, stale-while-revalidate=31536000',
+    },
+  })
 }
 
 function formatPageId(hex: string): string {

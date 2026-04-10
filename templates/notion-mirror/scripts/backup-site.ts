@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { collectPageAssetMetadata, type AssetMetadata } from '../src/document-assets'
 import { getConfig, type Env } from '../src/config'
@@ -12,6 +12,7 @@ import {
   localImagesManifestPath,
   pageBackupPath,
   readJsonFile,
+  readWranglerVars,
   resolveSiteKey,
   siteManifestPath,
   staticBinaryFilePath,
@@ -89,6 +90,12 @@ while (pageQueue.length) {
   }
 }
 
+const blockToPage = buildBlockToPageLookup(pageDataById)
+const parentMap = new Map<string, string | null>()
+for (const [pageId, pageData] of pageDataById.entries()) {
+  parentMap.set(pageId, resolveParentPageId(pageData.page, blockToPage))
+}
+
 for (const [pageId, pageData] of pageDataById.entries()) {
   const title = getPageTitle(pageData.page)
   const breadcrumbs = buildLocalBreadcrumbs(pageData.page, pageDataById, config.rootPageId)
@@ -97,6 +104,8 @@ for (const [pageId, pageData] of pageDataById.entries()) {
   const imagePathMap = await ensureLocalImages(extractImageSources(html))
   const localHtml = rewriteHtmlForLocal(html, imagePathMap, assetPathMap)
   const routePath = normalizeRoutePath(pageData.page.id, title, config.rootPageId)
+  const parentPageId = parentMap.get(pageId) ?? null
+  const depth = computeDepth(pageId, parentMap, config.rootPageId)
 
   await writeJsonFile(pageBackupPath(siteKey, pageId), {
     pageData,
@@ -111,6 +120,8 @@ for (const [pageId, pageData] of pageDataById.entries()) {
     path: routePath,
     htmlPath: routePath === '/' ? '/index.html' : `/${routePath.replace(/^\/+/, '')}/index.html`,
     ...(pageData.page.last_edited_time ? { lastEditedTime: pageData.page.last_edited_time } : {}),
+    parentPageId,
+    depth,
   })
 }
 
@@ -148,19 +159,21 @@ function buildEnv(): Env {
     throw new Error('NOTION_API_KEY must be set in the environment before creating a backup.')
   }
 
+  const vars = readWranglerVars()
+
   return {
     NOTION_API_KEY: notionApiKey,
     PAGE_CACHE: null as unknown as KVNamespace,
     IMAGE_STORE: null as unknown as R2Bucket,
-    ROOT_PAGE_ID: process.env.ROOT_PAGE_ID || <%- jsString(rootPageId) %>,
-    SITE_DOMAIN: process.env.SITE_DOMAIN || <%- jsString(domainName) %>,
-    SITE_NAME: process.env.SITE_NAME || <%- jsString(siteName) %>,
-    SITE_DESCRIPTION: process.env.SITE_DESCRIPTION || <%- jsString(siteDescription) %>,
-    CACHE_TTL_SECONDS: process.env.CACHE_TTL_SECONDS || '86400',
-    NOTION_WORKSPACE_SLUG: process.env.NOTION_WORKSPACE_SLUG || <%- jsString(notionWorkspaceSlug) %>,
-    GOOGLE_TAG_ID: process.env.GOOGLE_TAG_ID || <%- jsString(googleTagId) %>,
-    SHORT_LINKS_JSON: process.env.SHORT_LINKS_JSON || <%- jsString(JSON.stringify(shortLinks)) %>,
-    SHORT_LINK_REDIRECT_STATUS: process.env.SHORT_LINK_REDIRECT_STATUS || <%- jsString(shortLinkRedirectStatus) %>,
+    ROOT_PAGE_ID: process.env.ROOT_PAGE_ID || vars.ROOT_PAGE_ID || '',
+    SITE_DOMAIN: process.env.SITE_DOMAIN || vars.SITE_DOMAIN || '',
+    SITE_NAME: process.env.SITE_NAME || vars.SITE_NAME || '',
+    SITE_DESCRIPTION: process.env.SITE_DESCRIPTION || vars.SITE_DESCRIPTION || '',
+    CACHE_TTL_SECONDS: process.env.CACHE_TTL_SECONDS || vars.CACHE_TTL_SECONDS || '86400',
+    NOTION_WORKSPACE_SLUG: process.env.NOTION_WORKSPACE_SLUG || vars.NOTION_WORKSPACE_SLUG || '',
+    GOOGLE_TAG_ID: process.env.GOOGLE_TAG_ID || vars.GOOGLE_TAG_ID,
+    SHORT_LINKS_JSON: process.env.SHORT_LINKS_JSON || vars.SHORT_LINKS_JSON || '{}',
+    SHORT_LINK_REDIRECT_STATUS: process.env.SHORT_LINK_REDIRECT_STATUS || vars.SHORT_LINK_REDIRECT_STATUS || '302',
   }
 }
 
@@ -272,6 +285,14 @@ async function ensureLocalAssets(assets: AssetMetadata[]): Promise<Map<string, s
 }
 
 async function downloadBinary(url: string, targetPath: string): Promise<{ contentType: string }> {
+  // Skip download if file already exists on disk (handles expired signed URLs on re-runs)
+  try {
+    const existing = await stat(targetPath)
+    if (existing.size > 0) {
+      return { contentType: guessContentType(targetPath) }
+    }
+  } catch {}
+
   await mkdir(dirname(targetPath), { recursive: true })
 
   const response = await fetch(url, {
@@ -287,6 +308,16 @@ async function downloadBinary(url: string, targetPath: string): Promise<{ conten
   const contentType = response.headers.get('content-type') || 'application/octet-stream'
   await Bun.write(targetPath, await response.arrayBuffer())
   return { contentType }
+}
+
+function guessContentType(path: string): string {
+  if (path.endsWith('.png')) return 'image/png'
+  if (path.endsWith('.jpg') || path.endsWith('.jpeg')) return 'image/jpeg'
+  if (path.endsWith('.gif')) return 'image/gif'
+  if (path.endsWith('.webp')) return 'image/webp'
+  if (path.endsWith('.svg')) return 'image/svg+xml'
+  if (path.endsWith('.pdf')) return 'application/pdf'
+  return 'application/octet-stream'
 }
 
 function extractImageSources(html: string): string[] {
@@ -474,6 +505,72 @@ async function fetchWorkspaceAccessiblePageIds(apiKey: string): Promise<string[]
   } while (cursor)
 
   return [...pageIds]
+}
+
+function buildBlockToPageLookup(pageDataMap: Map<string, PageData>): Map<string, string> {
+  const lookup = new Map<string, string>()
+
+  function walkBlocks(blocks: Block[], ownerPageId: string) {
+    for (const block of blocks) {
+      lookup.set(block.id, ownerPageId)
+      if (block._children?.length) {
+        walkBlocks(block._children, ownerPageId)
+      }
+    }
+  }
+
+  for (const [pageId, pageData] of pageDataMap.entries()) {
+    lookup.set(pageId, pageId)
+    walkBlocks(pageData.blocks, pageId)
+  }
+
+  return lookup
+}
+
+function resolveParentPageId(page: Page, blockToPage: Map<string, string>): string | null {
+  const parent = page.parent
+  if (!parent) {
+    return null
+  }
+
+  if (parent.type === 'page_id' && parent.page_id) {
+    return parent.page_id
+  }
+
+  if (parent.type === 'block_id' && parent.block_id) {
+    return blockToPage.get(parent.block_id) ?? null
+  }
+
+  return null
+}
+
+function computeDepth(pageId: string, parentMap: Map<string, string | null>, rootPageId: string): number {
+  const rootCompact = rootPageId.replace(/-/g, '')
+  if (pageId.replace(/-/g, '') === rootCompact) {
+    return 0
+  }
+
+  let depth = 0
+  let currentId: string | null = pageId
+  const seen = new Set<string>()
+
+  while (currentId) {
+    const compactId = currentId.replace(/-/g, '')
+    if (compactId === rootCompact || seen.has(compactId)) {
+      break
+    }
+
+    seen.add(compactId)
+    const parentId = parentMap.get(currentId) ?? null
+    if (!parentId) {
+      break
+    }
+
+    depth++
+    currentId = parentId
+  }
+
+  return depth
 }
 
 async function notionApiRequest(apiKey: string, path: string, body: Record<string, unknown>): Promise<any> {

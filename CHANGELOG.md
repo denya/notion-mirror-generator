@@ -1,5 +1,12 @@
 # notehost
 
+## 1.0.34
+
+### Patch Changes
+
+- 4999948: Asks for main Notion page ID, uses chalk for output
+- 4999948: Update README
+
 ## 1.0.6
 
 ### Patch Changes

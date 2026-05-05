@@ -201,6 +201,18 @@ function renderBlock(
       return `<div class="child-page"><a href="${escapeAttr(pagePath(block.id, title))}">${icon}<span class="child-page-title">${escapeHtml(title)}</span></a></div>`
     }
 
+    case 'link_to_page': {
+      const pageId = (block as any).link_to_page?.page_id
+      if (typeof pageId !== 'string' || !pageId) {
+        return ''
+      }
+
+      const title = (block as any).link_to_page?.resolvedTitle || 'Linked page'
+      const href = (block as any).link_to_page?.resolvedHref || pagePath(pageId, title)
+      const icon = renderChildPageIcon((block as any).link_to_page?.resolvedIcon)
+      return `<div class="child-page link-to-page"><a href="${escapeAttr(href)}">${icon}<span class="child-page-title">${escapeHtml(title)}</span></a></div>`
+    }
+
     case 'child_database': {
       const title = (block as any).child_database?.title || 'Untitled Database'
       return `<div class="child-database">📊 ${escapeHtml(title)}</div>`

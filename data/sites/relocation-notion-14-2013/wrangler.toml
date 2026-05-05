@@ -1,0 +1,40 @@
+name = "spain-denyamsk-ru-notion-proxy"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+routes = [
+  { pattern = "spain.denyamsk.com", custom_domain = true },
+  { pattern = "spain.denyamsk.ru", custom_domain = true },
+]
+
+[vars]
+ROOT_PAGE_ID = "1372979b1b584059bd83d19bbbafa985"
+SITE_DOMAIN = "spain.denyamsk.com"
+LEGACY_SITE_DOMAIN = "spain.denyamsk.ru"
+SITE_NAME = "Relocate to Spain"
+SITE_DESCRIPTION = "Relocate to Spain: Digital Nomads and Startup founders residency permits"
+CACHE_TTL_SECONDS = "86400"
+NOTION_WORKSPACE_SLUG = "barcelona-startups-relocation"
+GOOGLE_TAG_ID = "G-Y77J6MRR6M"
+SHORT_LINK_REDIRECT_STATUS = "302"
+ENABLE_TOC = "true"
+HIDE_MOBILE_COVER_IMAGES = "true"
+ALWAYS_USE_SITE_LOGO_FAVICON = "true"
+SHORT_LINKS_JSON = '''
+{
+  "/startup-visa": "https://spain.denyamsk.com/spanish-startup-residence-permit-a-comprehensive-guide-2026-rus-edition-188230bbb2ce48d7823ce96b15391606#-",
+  "/digital-nomad": "https://spain.denyamsk.com/digital-nomad-residence-in-spain-2026-97dfbe479af04e8b94d269f07bf7e0a2"
+}
+'''
+
+# KV namespace for cached HTML pages
+[[kv_namespaces]]
+binding = "PAGE_CACHE"
+id = "313a2bc7c5d04234ba3877d39a9ab6fd"
+
+# R2 bucket for cached images
+[[r2_buckets]]
+binding = "IMAGE_STORE"
+bucket_name = "spain-denyamsk-notion-images"

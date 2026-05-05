@@ -93,6 +93,29 @@ export function staticSitemapEntries(config: SiteConfig): SitemapEntry[] {
   })))
 }
 
+export function sitemapEntriesFromIndexedPages(
+  pages: Iterable<{ path: string; lastModified?: string }>,
+  staticEntries: Iterable<SitemapEntry> = [],
+): SitemapEntry[] {
+  return normalizeSitemapEntries([
+    ...[...pages].map((page) => page.lastModified ? { path: page.path, lastModified: page.lastModified } : { path: page.path }),
+    ...staticEntries,
+  ])
+}
+
+export function isStaticOnlySitemapEntries(
+  entries: Iterable<SitemapEntry>,
+  staticEntries: Iterable<SitemapEntry>,
+): boolean {
+  const normalizedEntries = normalizeSitemapEntries(entries)
+  const allowedPaths = new Set(normalizeSitemapEntries(staticEntries).map((entry) => entry.path))
+  if (!allowedPaths.size || normalizedEntries.length > allowedPaths.size) {
+    return false
+  }
+
+  return normalizedEntries.every((entry) => allowedPaths.has(entry.path))
+}
+
 export function normalizeSitemapEntries(entries: Iterable<SitemapEntry>): SitemapEntry[] {
   const deduped = new Map<string, SitemapEntry>()
 

@@ -105,6 +105,9 @@ echo "   Secret set."
 print_step "Step 5: Deploying worker..."
 bunx wrangler deploy 2>&1
 
+print_step "Step 6: Warming sitemap and page metadata..."
+bun run warm:notion
+
 echo ""
 echo "=== Deploy complete! ==="
 echo ""

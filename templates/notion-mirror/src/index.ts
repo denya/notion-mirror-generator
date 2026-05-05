@@ -1,15 +1,15 @@
 import { Hono } from 'hono'
 import type { Env } from './config'
 import { getConfig } from './config'
-import { fetchPageAncestors, fetchPageData, collectBookmarkUrls, getPageCover, getPageIcon, type Block, type PageData, warmBookmarkMetadata } from './notion-client'
+import { fetchPageAncestors, fetchPageData, fetchWorkspacePublicPages, collectBookmarkUrls, getPageCover, getPageIcon, type Block, type PageData, warmBookmarkMetadata } from './notion-client'
 import { renderGoogleTagScript, renderPage } from './template'
-import { getCachedPage, getCachedSitemap, isCachedPageFresh, isCachedSitemapFresh, listCachedPageMetadata, setCachedAssetMetadataBatch, setCachedPage, setCachedPageMetadata, setCachedSitemap } from './cache'
+import { getCachedPage, getCachedSitemap, isCachedPageFresh, isCachedSitemapFresh, listCachedPageMetadata, setCachedAssetMetadataBatch, setCachedPage, setCachedPageMetadata, setCachedSitemap, type CachedPageMetadataEntry } from './cache'
 import { handleImageProxy, warmImageCache } from './image-proxy'
 import { handleAssetProxy } from './asset-proxy'
 import { escapeHtml } from './rich-text'
 import { canonicalPagePath, extractPageId } from './page-path'
 import { getPageTitle } from './notion-client'
-import { collectSitemapEntries, normalizeSitemapEntries, renderSitemapXml, staticSitemapEntries, type SitemapEntry } from './sitemap'
+import { isStaticOnlySitemapEntries, renderSitemapXml, sitemapEntriesFromIndexedPages, staticSitemapEntries, type SitemapEntry } from './sitemap'
 import { buildPageBreadcrumbs } from './breadcrumbs'
 import { resolveShortLinkRedirect } from './short-links'
 import { collectPageAssetMetadata } from './document-assets'
@@ -24,6 +24,7 @@ interface RenderedPageCacheResult {
 const app = new Hono<AppEnv>()
 const pendingPageUpdates = new Map<string, Promise<RenderedPageCacheResult>>()
 let pendingSitemapUpdate: Promise<SitemapEntry[]> | null = null
+let pendingPageIndexUpdate: Promise<CachedPageMetadataEntry[]> | null = null
 
 app.use('*', async (c, next) => {
   const config = getConfig(c.env)
@@ -46,9 +47,19 @@ app.get('/robots.txt', (c) => {
 app.get('/sitemap.xml', async (c) => {
   const config = getConfig(c.env)
   const cached = await getCachedSitemap(c.env)
+  const staticEntries = staticSitemapEntries(config)
 
   try {
     if (cached) {
+      if (isStaticOnlySitemapEntries(cached.entries, staticEntries)) {
+        const indexedPages = await listCachedPageMetadata(c.env)
+        if (indexedPages.length) {
+          return xmlResponse(config.domain, buildIndexedSitemapEntries(config, indexedPages))
+        }
+
+        return xmlResponse(config.domain, await scheduleSitemapRefresh(c.env, config))
+      }
+
       if (!isCachedSitemapFresh(cached, config.cacheTtlSeconds)) {
         c.executionCtx.waitUntil(scheduleSitemapRefresh(c.env, config).then(() => undefined))
       }
@@ -57,12 +68,16 @@ app.get('/sitemap.xml', async (c) => {
     }
 
     const indexedEntries = await getIndexedSitemapEntries(c.env, config)
-    c.executionCtx.waitUntil(scheduleSitemapRefresh(c.env, config).then(() => undefined))
-    return xmlResponse(config.domain, indexedEntries.length ? indexedEntries : staticSitemapEntries(config))
+    if (indexedEntries.length) {
+      c.executionCtx.waitUntil(scheduleSitemapRefresh(c.env, config).then(() => undefined))
+      return xmlResponse(config.domain, indexedEntries)
+    }
+
+    return xmlResponse(config.domain, await scheduleSitemapRefresh(c.env, config))
   } catch (e: any) {
     console.error('Sitemap refresh failed:', e?.message || e)
     const indexedEntries = await getIndexedSitemapEntries(c.env, config)
-    return xmlResponse(config.domain, indexedEntries.length ? indexedEntries : staticSitemapEntries(config))
+    return xmlResponse(config.domain, indexedEntries.length ? indexedEntries : staticEntries)
   }
 })
 
@@ -227,12 +242,8 @@ function schedulePageUpdate(env: Env, config: ReturnType<typeof getConfig>, page
 }
 
 async function refreshSitemap(env: Env, config: ReturnType<typeof getConfig>): Promise<SitemapEntry[]> {
-  const entries = await collectSitemapEntries(env.NOTION_API_KEY, config, {
-    onError(pageId, error) {
-      console.warn(`Skipping sitemap page ${pageId}:`, error instanceof Error ? error.message : error)
-    },
-  })
-  const resolvedEntries = entries.length ? entries : staticSitemapEntries(config)
+  const pages = await schedulePageIndexRefresh(env, config)
+  const resolvedEntries = buildIndexedSitemapEntries(config, pages)
   await setCachedSitemap(env, resolvedEntries)
   return resolvedEntries
 }
@@ -255,10 +266,43 @@ async function getIndexedSitemapEntries(env: Env, config: ReturnType<typeof getC
     return []
   }
 
-  return normalizeSitemapEntries([
-    ...pages.map((page) => page.lastModified ? { path: page.path, lastModified: page.lastModified } : { path: page.path }),
-    ...staticSitemapEntries(config),
-  ])
+  return buildIndexedSitemapEntries(config, pages)
+}
+
+function schedulePageIndexRefresh(env: Env, config: ReturnType<typeof getConfig>): Promise<CachedPageMetadataEntry[]> {
+  if (pendingPageIndexUpdate) {
+    return pendingPageIndexUpdate
+  }
+
+  pendingPageIndexUpdate = refreshPageIndex(env, config).finally(() => {
+    pendingPageIndexUpdate = null
+  })
+
+  return pendingPageIndexUpdate
+}
+
+async function refreshPageIndex(env: Env, config: ReturnType<typeof getConfig>): Promise<CachedPageMetadataEntry[]> {
+  const pages = await fetchWorkspacePublicPages(env.NOTION_API_KEY, config.rootPageId)
+  const cachedAt = Date.now()
+  const indexedPages = pages
+    .map((page) => ({
+      pageId: page.pageId,
+      path: canonicalPagePath(page.pageId, page.title, config.rootPageId),
+      title: page.title,
+      ...(page.lastModified ? { lastModified: page.lastModified } : {}),
+      cachedAt,
+    }))
+    .sort((left, right) => left.path.localeCompare(right.path))
+
+  await Promise.all(indexedPages.map((entry) => setCachedPageMetadata(env, entry)))
+  return indexedPages
+}
+
+function buildIndexedSitemapEntries(
+  config: ReturnType<typeof getConfig>,
+  pages: Array<{ path: string; lastModified?: string }>,
+): SitemapEntry[] {
+  return sitemapEntriesFromIndexedPages(pages, staticSitemapEntries(config))
 }
 
 async function warmPageDependencies(env: Env, rendered: RenderedPageCacheResult): Promise<void> {

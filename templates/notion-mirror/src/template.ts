@@ -29,6 +29,14 @@ export function renderGoogleTagScript(googleTagId?: string): string {
   </script>`
 }
 
+export function applyPageHtmlOptions(html: string, config: Pick<SiteConfig, 'alwaysUseSiteLogoFavicon' | 'logoUrl'>): string {
+  if (!config.alwaysUseSiteLogoFavicon || !config.logoUrl) {
+    return html
+  }
+
+  return replaceHeadFaviconLinks(html, renderFaviconLinks(null, config.logoUrl))
+}
+
 export function renderPage(pageData: PageData, config: SiteConfig, breadcrumbs?: Breadcrumb[]): string {
   const title = getPageTitle(pageData.page)
   const icon = getPageIcon(pageData.page)
@@ -139,6 +147,20 @@ function renderFaviconLinks(icon: string | null, fallbackLogoUrl: string): strin
   const iconUrl = escapeAttr(toProxiedAssetUrl(fallbackLogoUrl))
   return `<link rel="icon" href="${iconUrl}">
   <link rel="apple-touch-icon" href="${iconUrl}">`
+}
+
+function replaceHeadFaviconLinks(html: string, faviconLinks: string): string {
+  const headEndIndex = html.search(/<\/head>/i)
+  if (headEndIndex === -1) {
+    return html
+  }
+
+  const beforeHeadEnd = html
+    .slice(0, headEndIndex)
+    .replace(/\n?\s*<link\s+rel=(["'])(?:icon|apple-touch-icon)\1[^>]*>/gi, '')
+  const afterHeadEnd = html.slice(headEndIndex)
+
+  return `${beforeHeadEnd}\n  ${faviconLinks}\n${afterHeadEnd}`
 }
 
 function getStyles(fontFamily: string): string {

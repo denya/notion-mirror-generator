@@ -80,6 +80,8 @@ test('notion-mirror-generator init-mirror scaffolds the reusable mirror template
   const wranglerConfig = await readFile(join(scaffoldDir, 'wrangler.toml'), 'utf8')
   const deployScript = await readFile(join(scaffoldDir, 'deploy.sh'), 'utf8')
   const siteConfig = await readFile(join(scaffoldDir, 'src/config.ts'), 'utf8')
+  const siteIndex = await readFile(join(scaffoldDir, 'src/index.ts'), 'utf8')
+  const siteTemplate = await readFile(join(scaffoldDir, 'src/template.ts'), 'utf8')
   const shortLinksConfig = await readFile(join(scaffoldDir, 'src/short-links.ts'), 'utf8')
   const readme = await readFile(join(scaffoldDir, 'README.md'), 'utf8')
   const setupSkill = await readFile(
@@ -105,6 +107,9 @@ test('notion-mirror-generator init-mirror scaffolds the reusable mirror template
   assert.match(siteConfig, /const BRAND_THEME_COLOR = "#1d4ed8"/)
   assert.match(siteConfig, /hideMobileCoverImages: env\.HIDE_MOBILE_COVER_IMAGES === 'true'/)
   assert.match(siteConfig, /alwaysUseSiteLogoFavicon: env\.ALWAYS_USE_SITE_LOGO_FAVICON === 'true'/)
+  assert.match(siteIndex, /applyPageHtmlOptions\(cached\.html, config\)/)
+  assert.match(siteTemplate, /export function applyPageHtmlOptions/)
+  assert.match(siteTemplate, /replaceHeadFaviconLinks/)
   assert.match(shortLinksConfig, /301 \| 302 \| 307/)
   assert.match(readme, /# mirror\.example\.com/)
   assert.match(readme, /data\/sites\/sample-mirror/)

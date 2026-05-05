@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { Env } from './config'
 import { getConfig } from './config'
 import { fetchPageAncestors, fetchPageData, fetchWorkspacePublicPages, collectBookmarkUrls, getPageCover, getPageIcon, type Block, type PageData, warmBookmarkMetadata } from './notion-client'
-import { renderGoogleTagScript, renderPage } from './template'
+import { applyPageHtmlOptions, renderGoogleTagScript, renderPage } from './template'
 import { getCachedPage, getCachedPageMetadata, getCachedSitemap, isCachedPageFresh, isCachedSitemapFresh, listCachedPageMetadata, setCachedAssetMetadataBatch, setCachedPage, setCachedPageMetadata, setCachedSitemap, type CachedPageMetadataEntry } from './cache'
 import { handleImageProxy, warmImageCache } from './image-proxy'
 import { handleAssetProxy } from './asset-proxy'
@@ -204,7 +204,7 @@ async function servePage(c: any, pageId: string): Promise<Response> {
       )
     }
 
-    return c.html(cached.html)
+    return c.html(applyPageHtmlOptions(cached.html, config))
   }
 
   try {

@@ -70,7 +70,7 @@ test('notehost init scaffolds the default template with the expected substitutio
   const gitignoreStat = await stat(join(scaffoldDir, '.gitignore'))
 
   assert.equal(packageJson.name, 'example-com')
-  assert.equal(packageJson.dependencies.notehost, '^1.0.33')
+  assert.equal(packageJson.dependencies.notehost, '^1.0.34')
   assert.match(siteConfig, /domain: 'example\.com'/)
   assert.match(siteConfig, /siteName: 'My Site'/)
   assert.match(siteConfig, /siteDescription: 'Desc'/)

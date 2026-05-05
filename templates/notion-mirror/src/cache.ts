@@ -190,6 +190,19 @@ export async function setCachedPageMetadata(
   await env.PAGE_CACHE.put(`page-meta:${normalizePageId(entry.pageId)}`, JSON.stringify(payload))
 }
 
+export async function getCachedPageMetadata(env: Env, pageId: string): Promise<CachedPageMetadataEntry | null> {
+  const raw = await env.PAGE_CACHE.get(`page-meta:${normalizePageId(pageId)}`)
+  if (!raw) {
+    return null
+  }
+
+  try {
+    return normalizeCachedPageMetadataEntry(JSON.parse(raw))
+  } catch {
+    return null
+  }
+}
+
 export async function getCachedImage(env: Env, key: string): Promise<R2ObjectBody | null> {
   return env.IMAGE_STORE.get(`img/${key}`)
 }

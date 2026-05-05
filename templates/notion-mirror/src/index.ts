@@ -3,7 +3,7 @@ import type { Env } from './config'
 import { getConfig } from './config'
 import { fetchPageAncestors, fetchPageData, fetchWorkspacePublicPages, collectBookmarkUrls, getPageCover, getPageIcon, type Block, type PageData, warmBookmarkMetadata } from './notion-client'
 import { renderGoogleTagScript, renderPage } from './template'
-import { getCachedPage, getCachedSitemap, isCachedPageFresh, isCachedSitemapFresh, listCachedPageMetadata, setCachedAssetMetadataBatch, setCachedPage, setCachedPageMetadata, setCachedSitemap, type CachedPageMetadataEntry } from './cache'
+import { getCachedPage, getCachedPageMetadata, getCachedSitemap, isCachedPageFresh, isCachedSitemapFresh, listCachedPageMetadata, setCachedAssetMetadataBatch, setCachedPage, setCachedPageMetadata, setCachedSitemap, type CachedPageMetadataEntry } from './cache'
 import { handleImageProxy, warmImageCache } from './image-proxy'
 import { handleAssetProxy } from './asset-proxy'
 import { escapeHtml } from './rich-text'
@@ -13,10 +13,12 @@ import { isStaticOnlySitemapEntries, renderSitemapXml, sitemapEntriesFromIndexed
 import { buildPageBreadcrumbs } from './breadcrumbs'
 import { resolveShortLinkRedirect } from './short-links'
 import { collectPageAssetMetadata } from './document-assets'
+import { canonicalRedirectTarget, extractCanonicalPathFromHtml } from './canonical-redirect'
 
 type AppEnv = { Bindings: Env }
 interface RenderedPageCacheResult {
   html: string
+  canonicalPath: string
   bookmarkUrls: string[]
   socialImageUrls: string[]
 }
@@ -170,6 +172,10 @@ async function servePage(c: any, pageId: string): Promise<Response> {
     try {
       const rendered = await schedulePageUpdate(env, config, pageId)
       c.executionCtx.waitUntil(warmPageDependencies(env, rendered).then(() => undefined))
+      const redirect = redirectToCanonicalPath(c, requestPath, rendered.canonicalPath, refresh)
+      if (redirect) {
+        return redirect
+      }
       return c.html(rendered.html)
     } catch (e: any) {
       console.error(`Forced refresh failed for page ${pageId}:`, e?.message || e)
@@ -179,6 +185,12 @@ async function servePage(c: any, pageId: string): Promise<Response> {
   const cached = await getCachedPage(env, pageId)
 
   if (cached) {
+    const canonicalPath = await resolveCachedCanonicalPath(env, pageId, cached.html)
+    const redirect = canonicalPath ? redirectToCanonicalPath(c, requestPath, canonicalPath, refresh) : null
+    if (redirect) {
+      return redirect
+    }
+
     const shouldRevalidate = !isCachedPageFresh(cached, config.cacheTtlSeconds)
     if (shouldRevalidate) {
       c.executionCtx.waitUntil(
@@ -194,6 +206,10 @@ async function servePage(c: any, pageId: string): Promise<Response> {
   try {
     const rendered = await schedulePageUpdate(env, config, pageId)
     c.executionCtx.waitUntil(warmPageDependencies(env, rendered).then(() => undefined))
+    const redirect = redirectToCanonicalPath(c, requestPath, rendered.canonicalPath, refresh)
+    if (redirect) {
+      return redirect
+    }
     return c.html(rendered.html)
   } catch (e: any) {
     console.error(`Failed to fetch page ${pageId}:`, e?.message || e)
@@ -221,6 +237,7 @@ async function fetchAndCachePage(env: Env, config: ReturnType<typeof getConfig>,
 
   return {
     html,
+    canonicalPath,
     bookmarkUrls: collectBookmarkUrls(pageData.blocks),
     socialImageUrls: collectSocialImageUrls(pageData),
   }
@@ -303,6 +320,16 @@ function buildIndexedSitemapEntries(
   pages: Array<{ path: string; lastModified?: string }>,
 ): SitemapEntry[] {
   return sitemapEntriesFromIndexedPages(pages, staticSitemapEntries(config))
+}
+
+async function resolveCachedCanonicalPath(env: Env, pageId: string, html: string): Promise<string | null> {
+  const metadata = await getCachedPageMetadata(env, pageId)
+  return metadata?.path || extractCanonicalPathFromHtml(html, env.SITE_DOMAIN)
+}
+
+function redirectToCanonicalPath(c: any, requestPath: string, canonicalPath: string, preserveRefresh: boolean): Response | null {
+  const target = canonicalRedirectTarget(requestPath, canonicalPath, preserveRefresh)
+  return target ? c.redirect(target, 301) : null
 }
 
 async function warmPageDependencies(env: Env, rendered: RenderedPageCacheResult): Promise<void> {

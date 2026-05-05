@@ -68,10 +68,10 @@ applyThemeCSS(getStoredTheme())
 
 // --- Header Bar ---
 function createHeader() {
-  if (document.getElementById('notehost-header')) return
+  if (document.getElementById('mirror-header')) return
 
   var header = document.createElement('div')
-  header.id = 'notehost-header'
+  header.id = 'mirror-header'
 
   var inner = document.createElement('div')
   inner.className = 'nh-header-inner'
@@ -116,7 +116,7 @@ function createHeader() {
 
 // --- Breadcrumbs ---
 function buildBreadcrumbs() {
-  var existing = document.getElementById('notehost-breadcrumbs')
+  var existing = document.getElementById('mirror-breadcrumbs')
   if (existing) existing.remove()
 
   var currentSlug = getSlug()
@@ -153,7 +153,7 @@ function buildBreadcrumbs() {
   if (crumbs.length < 2) return
 
   var container = document.createElement('div')
-  container.id = 'notehost-breadcrumbs'
+  container.id = 'mirror-breadcrumbs'
   container.className = 'visible'
 
   var inner = document.createElement('div')
@@ -188,7 +188,7 @@ function buildBreadcrumbs() {
   container.appendChild(inner)
 
   // Insert after the header
-  var headerEl = document.getElementById('notehost-header')
+  var headerEl = document.getElementById('mirror-header')
   if (headerEl && headerEl.nextSibling) {
     headerEl.parentNode.insertBefore(container, headerEl.nextSibling)
   } else {

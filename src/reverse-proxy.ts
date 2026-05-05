@@ -85,7 +85,7 @@ export async function reverseProxy(
       } else {
         console.error('!! Page Not found (404)', url.pathname)
 
-        return new Response('NoteHost: Page Not found (404).', { status: 404 })
+        return new Response('Notion Mirror: Page Not found (404).', { status: 404 })
       }
     }
   } else if (subDomain && siteConfig.subDomains) {

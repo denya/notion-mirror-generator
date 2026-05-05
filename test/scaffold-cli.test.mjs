@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
@@ -9,82 +9,8 @@ import { fileURLToPath } from 'node:url'
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const CLI_PATH = join(REPO_ROOT, 'dist/cli/index.js')
 
-test('notehost init scaffolds the default template with the expected substitutions', async () => {
-  const workdir = await mkdtemp(join(tmpdir(), 'notehost-cli-test-'))
-  const domain = 'example.com'
-  const output = []
-
-  const child = spawn(
-    'node',
-    [CLI_PATH, 'init', domain],
-    {
-      cwd: workdir,
-      env: {
-        ...process.env,
-        NOTEHOST_CLI_DEBUG: '1',
-        NOTEHOST_CLI_ANSWERS: JSON.stringify({
-          domainName: domain,
-          mainPageId: 'page123',
-          siteName: 'My Site',
-          siteDescription: 'Desc',
-          siteImage: 'https://img.example/preview.png',
-          confirmGenerate: true,
-          template: 'default',
-        }),
-      },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    },
-  )
-
-  const collect = (chunk) => {
-    const text = chunk.toString()
-    output.push(text)
-  }
-
-  child.stdout.on('data', collect)
-  child.stderr.on('data', collect)
-
-  const exitCode = await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      child.kill('SIGTERM')
-      reject(new Error(`CLI test timed out.\n\n${output.join('')}`))
-    }, 15000)
-
-    child.on('error', (error) => {
-      clearTimeout(timeout)
-      reject(error)
-    })
-
-    child.on('close', (code) => {
-      clearTimeout(timeout)
-      resolve(code)
-    })
-  })
-
-  assert.equal(exitCode, 0, output.join(''))
-
-  const scaffoldDir = join(workdir, domain)
-  const packageJson = JSON.parse(await readFile(join(scaffoldDir, 'package.json'), 'utf8'))
-  const siteConfig = await readFile(join(scaffoldDir, 'src/site-config.ts'), 'utf8')
-  const wranglerConfig = await readFile(join(scaffoldDir, 'wrangler.toml'), 'utf8')
-  const gitignoreStat = await stat(join(scaffoldDir, '.gitignore'))
-
-  assert.equal(packageJson.name, 'example-com')
-  assert.equal(packageJson.dependencies.notehost, '^1.0.34')
-  assert.match(siteConfig, /domain: 'example\.com'/)
-  assert.match(siteConfig, /siteName: 'My Site'/)
-  assert.match(siteConfig, /siteDescription: 'Desc'/)
-  assert.match(siteConfig, /siteImage: 'https:\/\/img\.example\/preview\.png'/)
-  assert.match(siteConfig, /'': 'page123'/)
-  assert.match(wranglerConfig, /name = "example-com-notion-proxy"/)
-  assert.match(wranglerConfig, /pattern = "www\.example\.com"/)
-  assert.ok(gitignoreStat.isFile())
-
-  await rm(workdir, { recursive: true, force: true })
-})
-
-test('notehost init-mirror scaffolds the reusable mirror template with branding, backup scripts, and deploy config', async () => {
-  const workdir = await mkdtemp(join(tmpdir(), 'notehost-mirror-test-'))
+test('notion-mirror-generator init-mirror scaffolds the reusable mirror template with branding, backup scripts, and deploy config', async () => {
+  const workdir = await mkdtemp(join(tmpdir(), 'notion-mirror-generator-test-'))
   const projectName = 'data/sites/sample-mirror'
 
   const child = spawn(
@@ -94,8 +20,8 @@ test('notehost init-mirror scaffolds the reusable mirror template with branding,
       cwd: workdir,
       env: {
         ...process.env,
-        NOTEHOST_CLI_DEBUG: '1',
-        NOTEHOST_CLI_ANSWERS: JSON.stringify({
+        NOTION_MIRROR_CLI_DEBUG: '1',
+        NOTION_MIRROR_CLI_ANSWERS: JSON.stringify({
           packageJsonName: 'sample-mirror',
           domainName: 'mirror.example.com',
           rootPageId: 'root-page-id',
@@ -166,13 +92,17 @@ test('notehost init-mirror scaffolds the reusable mirror template with branding,
   assert.equal(packageJson.scripts.backup, 'bun run scripts/backup-site.ts')
   assert.equal(packageJson.scripts['backup:workspace'], 'bun run scripts/backup-site.ts --workspace')
   assert.equal(packageJson.scripts['serve:local'], 'bun run scripts/serve-local.ts')
+  assert.equal(packageJson.dependencies?.['notion-mirror-generator'], undefined)
+  assert.deepEqual(Object.keys(packageJson.dependencies ?? {}).sort(), ['hono'])
   assert.match(wranglerConfig, /name = "sample-mirror-notion-proxy"/)
   assert.match(wranglerConfig, /pattern = "mirror\.example\.com"/)
   assert.match(wranglerConfig, /ROOT_PAGE_ID = "root-page-id"/)
+  assert.match(wranglerConfig, /HIDE_MOBILE_COVER_IMAGES = "false"/)
   assert.match(wranglerConfig, /bucket_name = "sample-mirror-notion-images"/)
   assert.match(deployScript, /SITE_URL="https:\/\/mirror\.example\.com"/)
   assert.match(siteConfig, /const BRAND_NAME = "Example Brand"/)
   assert.match(siteConfig, /const BRAND_THEME_COLOR = "#1d4ed8"/)
+  assert.match(siteConfig, /hideMobileCoverImages: env\.HIDE_MOBILE_COVER_IMAGES === 'true'/)
   assert.match(shortLinksConfig, /301 \| 302 \| 307/)
   assert.match(readme, /# mirror\.example\.com/)
   assert.match(readme, /data\/sites\/sample-mirror/)

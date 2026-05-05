@@ -1,10 +1,10 @@
-import { NoteHostSiteConfigFull } from '../types'
+import { MirrorSiteConfigFull } from '../types'
 import { BODY_JS_STRING } from './_body-js-string'
 /* eslint-disable class-methods-use-this */
 export class BodyRewriter {
-  siteConfig: NoteHostSiteConfigFull
+  siteConfig: MirrorSiteConfigFull
 
-  constructor(siteConfig: NoteHostSiteConfigFull) {
+  constructor(siteConfig: MirrorSiteConfigFull) {
     this.siteConfig = siteConfig
   }
 

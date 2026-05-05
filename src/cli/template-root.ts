@@ -6,21 +6,21 @@ export function resolveTemplateRoot(appPath: string) {
   const last = parts[parts.length - 1]
   const beforeLast = parts[parts.length - 2]
 
-  if (process.env.NOTEHOST_CLI_DEBUG) {
+  if (process.env.NOTION_MIRROR_CLI_DEBUG) {
     return path.join(runDir, '..', '..')
   }
 
   if (last === '.bin' && beforeLast === 'node_modules') {
-    return path.join(runDir, '..', 'notehost')
+    return path.join(runDir, '..', 'notion-mirror-generator')
   }
 
   if (last === 'cli' && beforeLast === 'dist') {
     return path.join(runDir, '..', '..')
   }
 
-  if (beforeLast === 'notehost') {
+  if (beforeLast === 'notion-mirror-generator') {
     return path.join(runDir, '..')
   }
 
-  return path.join(runDir, '..', 'notehost')
+  return path.join(runDir, '..', 'notion-mirror-generator')
 }

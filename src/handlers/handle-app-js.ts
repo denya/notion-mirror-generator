@@ -1,6 +1,6 @@
-import { NoteHostSiteConfigFull } from '../types'
+import { MirrorSiteConfigFull } from '../types'
 
-export async function handleAppJs(url: URL, siteConfig: NoteHostSiteConfigFull) {
+export async function handleAppJs(url: URL, siteConfig: MirrorSiteConfigFull) {
   const { domain } = siteConfig
   const response = await fetch(url.toString())
   const body = await response.text()

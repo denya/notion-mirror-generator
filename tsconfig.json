@@ -110,6 +110,7 @@
   "exclude": [
     "node_modules",
     "dist",
+    "data",
     "templates",
   ],
 }

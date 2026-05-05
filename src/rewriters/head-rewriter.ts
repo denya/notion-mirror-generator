@@ -1,10 +1,10 @@
-import { NoteHostSiteConfigFull } from '../types'
+import { MirrorSiteConfigFull } from '../types'
 
 /* eslint-disable class-methods-use-this */
 export class HeadRewriter {
-  siteConfig: NoteHostSiteConfigFull
+  siteConfig: MirrorSiteConfigFull
 
-  constructor(siteConfig: NoteHostSiteConfigFull) {
+  constructor(siteConfig: MirrorSiteConfigFull) {
     this.siteConfig = siteConfig
   }
 
@@ -50,15 +50,15 @@ export class HeadRewriter {
         }
 
         /* Smooth theme transitions */
-        #notehost-header,
-        #notehost-breadcrumbs,
-        #notehost-header * ,
-        #notehost-breadcrumbs * {
+        #mirror-header,
+        #mirror-breadcrumbs,
+        #mirror-header * ,
+        #mirror-breadcrumbs * {
           transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
         }
 
         /* Header bar */
-        #notehost-header {
+        #mirror-header {
           position: sticky;
           top: 0;
           z-index: 1000;
@@ -130,7 +130,7 @@ export class HeadRewriter {
         [data-theme="dark"] .nh-icon-moon { display: block; }
 
         /* Breadcrumbs */
-        #notehost-breadcrumbs {
+        #mirror-breadcrumbs {
           max-width: 900px;
           margin: 0 auto;
           padding: 12px 16px 4px;
@@ -139,7 +139,7 @@ export class HeadRewriter {
           line-height: 1.4;
           display: none;
         }
-        #notehost-breadcrumbs.visible { display: block; }
+        #mirror-breadcrumbs.visible { display: block; }
         .nh-breadcrumb-inner {
           display: flex;
           align-items: center;
@@ -170,7 +170,7 @@ export class HeadRewriter {
           .nh-header-inner { padding: 0 16px; }
           .nh-site-name { font-size: 14px; }
           .nh-nav a { font-size: 13px; padding: 4px 8px; }
-          #notehost-breadcrumbs { padding: 8px 16px 2px; font-size: 13px; }
+          #mirror-breadcrumbs { padding: 8px 16px 2px; font-size: 13px; }
         }
         @media (max-width: 480px) {
           .nh-nav { gap: 4px; }

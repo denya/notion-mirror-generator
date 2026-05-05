@@ -19,6 +19,7 @@ export interface SiteConfig {
   footerOwnerUrl: string
   footerSiteLabel: string
   footerSiteUrl: string
+  hideMobileCoverImages: boolean
 }
 
 export interface Env {
@@ -34,6 +35,7 @@ export interface Env {
   GOOGLE_TAG_ID?: string
   SHORT_LINKS_JSON?: string
   SHORT_LINK_REDIRECT_STATUS?: string
+  HIDE_MOBILE_COVER_IMAGES?: string
 }
 
 const BRAND_NAME = <%- jsString(brandName) %>
@@ -66,5 +68,6 @@ export function getConfig(env: Env): SiteConfig {
     footerOwnerUrl: FOOTER_OWNER_URL,
     footerSiteLabel: FOOTER_SITE_LABEL,
     footerSiteUrl: FOOTER_SITE_URL,
+    hideMobileCoverImages: env.HIDE_MOBILE_COVER_IMAGES === 'true',
   }
 }

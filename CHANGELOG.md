@@ -1,4 +1,4 @@
-# notehost
+# notion-mirror-generator
 
 ## 1.0.34
 

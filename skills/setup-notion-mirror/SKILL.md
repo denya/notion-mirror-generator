@@ -117,7 +117,7 @@ npm run build
 node dist/cli/index.js init-mirror data/sites/<project-name>
 ```
 
-Use `NOTEHOST_CLI_ANSWERS` only for automated/test flows. Prefer interactive prompts for humans unless they explicitly want a scripted run.
+Use `NOTION_MIRROR_CLI_ANSWERS` only for automated/test flows. Prefer interactive prompts for humans unless they explicitly want a scripted run.
 
 ### 6. Prepare the generated repo
 

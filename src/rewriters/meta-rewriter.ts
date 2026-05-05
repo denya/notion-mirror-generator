@@ -1,14 +1,14 @@
-import { NoteHostSiteConfigFull } from '../types'
+import { MirrorSiteConfigFull } from '../types'
 
 /* eslint-disable class-methods-use-this */
 export class MetaRewriter {
-  siteConfig: NoteHostSiteConfigFull
+  siteConfig: MirrorSiteConfigFull
 
   url: URL
 
   isRootPage: boolean
 
-  constructor(siteConfig: NoteHostSiteConfigFull, url: URL) {
+  constructor(siteConfig: MirrorSiteConfigFull, url: URL) {
     this.siteConfig = siteConfig
     this.url = url
     this.isRootPage = this.siteConfig.pageToSlug[this.url.pathname.slice(1)] === ''

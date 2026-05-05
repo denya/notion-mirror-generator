@@ -1,5 +1,5 @@
 /* eslint-disable class-methods-use-this */
-import { NoteHostSiteConfigFull } from '../types'
+import { MirrorSiteConfigFull } from '../types'
 
 export interface HandleRule {
   attribute: string
@@ -11,11 +11,11 @@ export interface HandleRule {
 }
 
 export class ElementHandler {
-  siteConfig: NoteHostSiteConfigFull
+  siteConfig: MirrorSiteConfigFull
 
   handleRules: HandleRule[]
 
-  constructor(siteConfig: NoteHostSiteConfigFull, handleRules: HandleRule[] = []) {
+  constructor(siteConfig: MirrorSiteConfigFull, handleRules: HandleRule[] = []) {
     this.siteConfig = siteConfig
     this.handleRules = handleRules
   }

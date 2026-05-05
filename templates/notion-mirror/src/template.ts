@@ -40,8 +40,9 @@ export function renderPage(pageData: PageData, config: SiteConfig, breadcrumbs?:
   const socialImage = cover || findFirstImage(pageData.blocks) || (icon?.startsWith('http') ? icon : null)
   const socialImageUrl = socialImage ? absoluteAssetUrl(config.domain, socialImage, true) : null
 
+  const coverClass = config.hideMobileCoverImages ? 'page-cover page-cover-hide-mobile' : 'page-cover'
   const coverHtml = cover
-    ? `<div class="page-cover"><img src="${escapeAttr(toProxiedAssetUrl(cover))}" alt=""></div>`
+    ? `<div class="${coverClass}"><img src="${escapeAttr(toProxiedAssetUrl(cover))}" alt=""></div>`
     : ''
 
   const iconHtml = icon
@@ -276,7 +277,10 @@ function getStyles(fontFamily: string): string {
     .page-cover { width: 100%; height: 30vh; min-height: 200px; overflow: hidden; }
     .page-cover img { width: 100%; height: 100%; object-fit: cover; }
     .page-body { max-width: var(--max-width); margin: 0 auto; padding: 0 var(--page-padding); }
-    @media (max-width: 768px) { .page-body { padding: 0 24px; } }
+    @media (max-width: 768px) {
+      .page-body { padding: 0 24px; }
+      .page-cover-hide-mobile { display: none; }
+    }
     .page-header { padding: 34px 0 12px; }
     .page-title-row {
       display: flex;

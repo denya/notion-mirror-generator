@@ -17,6 +17,7 @@ CACHE_TTL_SECONDS = "86400"
 NOTION_WORKSPACE_SLUG = <%- jsString(notionWorkspaceSlug) %>
 GOOGLE_TAG_ID = <%- jsString(googleTagId) %>
 SHORT_LINK_REDIRECT_STATUS = <%- jsString(shortLinkRedirectStatus) %>
+HIDE_MOBILE_COVER_IMAGES = "false"
 SHORT_LINKS_JSON = '''
 <%- jsonPretty(shortLinks) %>
 '''

@@ -1,9 +1,9 @@
 {
-  "name": "notehost",
+  "name": "notion-mirror-generator",
   "version": "1.0.34",
-  "description": "NoteHost is a free and powerful Notion hosting service.",
-  "repository": "https://github.com/velsa/notehost",
-  "homepage": "https://github.com/velsa/notehost",
+  "description": "Reusable Notion mirror generator for Cloudflare Workers.",
+  "repository": "https://github.com/denya/notion-mirror-generator",
+  "homepage": "https://github.com/denya/notion-mirror-generator",
   "keywords": [
     "Notion",
     "Cloudflare",
@@ -11,8 +11,8 @@
     "Hosting"
   ],
   "author": {
-    "name": "Vels (Itzhak Lobak)",
-    "email": "velshome@gmail.com"
+    "name": "Denis Moskalets",
+    "email": "denya.msk@gmail.com"
   },
   "license": "MIT",
   "publishConfig": {
@@ -23,11 +23,11 @@
   "module": "dist/index.cjs",
   "types": "dist/index.d.ts",
   "bin": {
-    "init": "./dist/cli/index.js"
+    "notion-mirror-generator": "./dist/cli/index.js"
   },
   "scripts": {
     "prebuild": "./build-body-js-string.sh",
-    "dev:cli": "npx tsx --inspect src/cli/index.ts init test.com",
+    "dev:cli": "npx tsx --inspect src/cli/index.ts init-mirror data/sites/test",
     "build": "npm run prebuild && tsup src/index.ts --format cjs,esm --dts-resolve --clean --sourcemap --out-dir dist && npm run build:cli",
     "build:cli": "tsup src/cli/index.ts --format esm --clean --out-dir dist/cli",
     "test": "npm run build && node --test test/*.test.mjs",

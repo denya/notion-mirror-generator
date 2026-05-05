@@ -1,7 +1,7 @@
 import { MetaRewriter, HeadRewriter, BodyRewriter } from './rewriters'
-import { NoteHostSiteConfigFull } from './types'
+import { MirrorSiteConfigFull } from './types'
 
-export async function appendJavascript(res: Response, url: URL, config: NoteHostSiteConfigFull) {
+export async function appendJavascript(res: Response, url: URL, config: MirrorSiteConfigFull) {
   // eslint-disable-next-line no-undef
   return new HTMLRewriter()
     .on('title', new MetaRewriter(config, url))

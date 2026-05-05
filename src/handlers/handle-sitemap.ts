@@ -1,6 +1,6 @@
-import { NoteHostSiteConfigFull } from '../types'
+import { MirrorSiteConfigFull } from '../types'
 
-export function handleSitemap(request: Request, siteConfig: NoteHostSiteConfigFull) {
+export function handleSitemap(request: Request, siteConfig: MirrorSiteConfigFull) {
   const { domain, slugs } = siteConfig
   let sitemap = '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
 

@@ -1,8 +1,8 @@
-import { NoteHostSiteConfig, NoteHostSiteConfigFull } from './types'
+import { MirrorSiteConfig, MirrorSiteConfigFull } from './types'
 
-export let siteConfig: NoteHostSiteConfigFull = {} as NoteHostSiteConfigFull
+export let siteConfig: MirrorSiteConfigFull = {} as MirrorSiteConfigFull
 
-export function initializeReverseProxy(siteConfigUser: NoteHostSiteConfig) {
+export function initializeReverseProxy(siteConfigUser: MirrorSiteConfig) {
   siteConfig = {
     ...siteConfigUser,
     slugs: [],

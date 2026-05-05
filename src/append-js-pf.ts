@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { HTMLRewriter } from 'htmlrewriter'
-import { NoteHostSiteConfigFull } from '.'
+import { MirrorSiteConfigFull } from '.'
 import { BodyRewriter, HeadRewriter, MetaRewriter } from './rewriters'
 
-export async function appendJavascriptPolyfill(res: Response, url: URL, config: NoteHostSiteConfigFull) {
+export async function appendJavascriptPolyfill(res: Response, url: URL, config: MirrorSiteConfigFull) {
   // eslint-disable-next-line no-undef
   return new HTMLRewriter()
     .on('title', new MetaRewriter(config, url) as any)

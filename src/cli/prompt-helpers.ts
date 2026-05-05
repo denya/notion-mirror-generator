@@ -1,7 +1,7 @@
 import { confirm, input, select } from '@inquirer/prompts'
 import fs from 'fs'
 
-const ANSWERS_ENV_VAR = 'NOTEHOST_CLI_ANSWERS'
+const ANSWERS_ENV_VAR = 'NOTION_MIRROR_CLI_ANSWERS'
 
 type PromptAnswers = Record<string, unknown>
 

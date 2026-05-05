@@ -2,16 +2,16 @@ export interface Env {
   slugs: KVNamespace
 }
 
-export type NoteHostSiteConfig = Omit<NoteHostSiteConfigFull, 'slugs' | 'pages' | 'pageToSlug'>
+export type MirrorSiteConfig = Omit<MirrorSiteConfigFull, 'slugs' | 'pages' | 'pageToSlug'>
 
-export interface NoteHostSiteConfigFull {
+export interface MirrorSiteConfigFull {
   // Site domain, example.com
   domain: string
 
   // Mapping from slug to page ID
   slugToPage: Record<string, string>
-  notionSlugToPage?: NoteHostNotionSlugConfig
-  pageMetadata?: Record<string, NoteHostSiteConfigPageMetadata>
+  notionSlugToPage?: MirrorNotionSlugConfig
+  pageMetadata?: Record<string, MirrorSiteConfigPageMetadata>
 
   // SEO metadata
   // title, og:site_name, article:author
@@ -36,7 +36,7 @@ export interface NoteHostSiteConfigFull {
     slug: string | undefined
   }
 
-  subDomains?: Record<string, NoteHostSiteConfigSubDomainRedirect>
+  subDomains?: Record<string, MirrorSiteConfigSubDomainRedirect>
 
   // Google Font name, you can choose from https://fonts.google.com
   googleFont?: string
@@ -52,11 +52,11 @@ export interface NoteHostSiteConfigFull {
   pages: Array<string>
 }
 
-export interface NoteHostSiteConfigSubDomainRedirect {
+export interface MirrorSiteConfigSubDomainRedirect {
   redirect: string
 }
 
-export interface NoteHostNotionSlugConfig {
+export interface MirrorNotionSlugConfig {
   // Notion database with mapping from slug to page ID
   // Columns:
   // | ------------ | ------------- |
@@ -73,7 +73,7 @@ export interface NoteHostNotionSlugConfig {
 
 // Page SEO metadata
 // Overrides site-level metadata
-export interface NoteHostSiteConfigPageMetadata {
+export interface MirrorSiteConfigPageMetadata {
   // <title>, og:title and twitter:title
   title?: string
   // description, og:description and twitter:description

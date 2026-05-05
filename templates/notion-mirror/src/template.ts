@@ -63,7 +63,7 @@ export function renderPage(pageData: PageData, config: SiteConfig, breadcrumbs?:
   <meta name="twitter:image" content="${escapeAttr(socialImageUrl)}">`
     : ''
   const twitterCard = socialImage ? 'summary_large_image' : 'summary'
-  const faviconLinks = renderFaviconLinks(icon, logoUrl)
+  const faviconLinks = renderFaviconLinks(config.alwaysUseSiteLogoFavicon ? null : icon, logoUrl)
   const googleTagScript = renderGoogleTagScript(config.googleTagId)
 
   return `<!DOCTYPE html>

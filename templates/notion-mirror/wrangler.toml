@@ -18,6 +18,7 @@ NOTION_WORKSPACE_SLUG = <%- jsString(notionWorkspaceSlug) %>
 GOOGLE_TAG_ID = <%- jsString(googleTagId) %>
 SHORT_LINK_REDIRECT_STATUS = <%- jsString(shortLinkRedirectStatus) %>
 HIDE_MOBILE_COVER_IMAGES = "false"
+ALWAYS_USE_SITE_LOGO_FAVICON = "false"
 SHORT_LINKS_JSON = '''
 <%- jsonPretty(shortLinks) %>
 '''

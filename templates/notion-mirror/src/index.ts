@@ -110,6 +110,10 @@ app.get('/_asset/:url', async (c) => {
 // Favicon
 app.get('/favicon.ico', async (c) => {
   const config = getConfig(c.env)
+  if (config.alwaysUseSiteLogoFavicon && config.logoUrl) {
+    return handleImageProxy(config.logoUrl, c.env)
+  }
+
   try {
     const pageData = await fetchPageData(c.env.NOTION_API_KEY, config.rootPageId)
     const icon = pageData.page.icon

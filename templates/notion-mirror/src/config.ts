@@ -20,6 +20,7 @@ export interface SiteConfig {
   footerSiteLabel: string
   footerSiteUrl: string
   hideMobileCoverImages: boolean
+  alwaysUseSiteLogoFavicon: boolean
 }
 
 export interface Env {
@@ -36,6 +37,7 @@ export interface Env {
   SHORT_LINKS_JSON?: string
   SHORT_LINK_REDIRECT_STATUS?: string
   HIDE_MOBILE_COVER_IMAGES?: string
+  ALWAYS_USE_SITE_LOGO_FAVICON?: string
 }
 
 const BRAND_NAME = <%- jsString(brandName) %>
@@ -69,5 +71,6 @@ export function getConfig(env: Env): SiteConfig {
     footerSiteLabel: FOOTER_SITE_LABEL,
     footerSiteUrl: FOOTER_SITE_URL,
     hideMobileCoverImages: env.HIDE_MOBILE_COVER_IMAGES === 'true',
+    alwaysUseSiteLogoFavicon: env.ALWAYS_USE_SITE_LOGO_FAVICON === 'true',
   }
 }

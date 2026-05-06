@@ -89,7 +89,7 @@ source .env && bun run warm:fast  # pre-render all pages into KV
 - **Dark mode** — theme toggle with `prefers-color-scheme` fallback
 - **SEO** — auto-generated sitemap.xml, OG metadata per page, canonical URLs, breadcrumbs
 - **Short links** — configurable `/slug → long-page-url` redirects (302/301)
-- **Custom branding** — logo, theme color, footer, favicon, Google Analytics
+- **Custom branding** — logo, theme color, footer, favicon, Google Analytics with optional consent mode banner
 - **Fast cache warming** — `warm:fast` re-renders all pages from local snapshots in seconds, no Notion API calls
 - **Workspace vs public scope** — separate `backup` (public) and `backup:workspace` (includes private pages) commands
 - **Config from wrangler.toml** — single source of truth; local scripts read vars at runtime, no rebuild needed after config changes
@@ -107,7 +107,7 @@ Two halves:
 - A Hono-based Worker (`src/index.ts`) serves pages from KV, falls back to Notion API on miss, and proxies images through R2.
 - `src/template.ts` renders a Notion-like page with your branding applied.
 - `src/renderer.ts` handles every Notion block type (headings, callouts, toggles, tables, bookmarks, etc.).
-- `wrangler.toml` holds all config as plain `[vars]` — change a value, redeploy.
+- `wrangler.toml` holds all config as plain `[vars]` — change a value, redeploy. Set `GOOGLE_ANALYTICS_CONSENT_MODE = "true"` with `GOOGLE_TAG_ID` to show the consent banner.
 
 ## Project structure
 

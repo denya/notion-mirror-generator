@@ -29,6 +29,7 @@ test('notion-mirror-generator init-mirror scaffolds the reusable mirror template
           siteDescription: 'Reusable Notion mirror',
           notionWorkspaceSlug: 'mirror-workspace',
           googleTagId: 'G-EXAMPLE123',
+          googleAnalyticsConsentMode: false,
           shortLinkRedirectStatus: '301',
           shortLinksJson: JSON.stringify({
             '/start': 'https://mirror.example.com/welcome',
@@ -99,16 +100,20 @@ test('notion-mirror-generator init-mirror scaffolds the reusable mirror template
   assert.match(wranglerConfig, /name = "sample-mirror-notion-proxy"/)
   assert.match(wranglerConfig, /pattern = "mirror\.example\.com"/)
   assert.match(wranglerConfig, /ROOT_PAGE_ID = "root-page-id"/)
+  assert.match(wranglerConfig, /GOOGLE_ANALYTICS_CONSENT_MODE = "false"/)
   assert.match(wranglerConfig, /HIDE_MOBILE_COVER_IMAGES = "false"/)
   assert.match(wranglerConfig, /ALWAYS_USE_SITE_LOGO_FAVICON = "false"/)
   assert.match(wranglerConfig, /bucket_name = "sample-mirror-notion-images"/)
   assert.match(deployScript, /SITE_URL="https:\/\/mirror\.example\.com"/)
   assert.match(siteConfig, /const BRAND_NAME = "Example Brand"/)
   assert.match(siteConfig, /const BRAND_THEME_COLOR = "#1d4ed8"/)
+  assert.match(siteConfig, /googleAnalyticsConsentMode: env\.GOOGLE_ANALYTICS_CONSENT_MODE === 'true'/)
   assert.match(siteConfig, /hideMobileCoverImages: env\.HIDE_MOBILE_COVER_IMAGES === 'true'/)
   assert.match(siteConfig, /alwaysUseSiteLogoFavicon: env\.ALWAYS_USE_SITE_LOGO_FAVICON === 'true'/)
   assert.match(siteIndex, /applyPageHtmlOptions\(cached\.html, config\)/)
   assert.match(siteTemplate, /export function applyPageHtmlOptions/)
+  assert.match(siteTemplate, /gtag\('consent', 'default', googleConsentState\('denied'\)\)/)
+  assert.match(siteTemplate, /data-google-consent="granted"/)
   assert.match(siteTemplate, /replaceHeadFaviconLinks/)
   assert.match(shortLinksConfig, /301 \| 302 \| 307/)
   assert.match(readme, /# mirror\.example\.com/)

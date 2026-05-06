@@ -18,6 +18,7 @@ SITE_DESCRIPTION = "Relocate to Spain: Digital Nomads and Startup founders resid
 CACHE_TTL_SECONDS = "86400"
 NOTION_WORKSPACE_SLUG = "barcelona-startups-relocation"
 GOOGLE_TAG_ID = "G-Y77J6MRR6M"
+GOOGLE_ANALYTICS_CONSENT_MODE = "true"
 SHORT_LINK_REDIRECT_STATUS = "302"
 ENABLE_TOC = "true"
 HIDE_MOBILE_COVER_IMAGES = "true"

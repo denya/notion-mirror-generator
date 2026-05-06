@@ -473,7 +473,9 @@ function formatPageId(hex: string): string {
 }
 
 function errorPage(config: any, title: string, message: string): string {
-  const googleTagScript = renderGoogleTagScript(config.googleTagId)
+  const googleTagScript = renderGoogleTagScript(config.googleTagId, {
+    consentMode: config.googleAnalyticsConsentMode,
+  })
   return `<!DOCTYPE html>
 <html lang="en">
 <head>

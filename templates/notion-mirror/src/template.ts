@@ -67,7 +67,17 @@ export function applyPageHtmlOptions(html: string, config: Pick<SiteConfig, 'alw
   return replaceHeadFaviconLinks(html, renderFaviconLinks(null, config.logoUrl))
 }
 
-export function renderPage(pageData: PageData, config: SiteConfig, breadcrumbs?: Breadcrumb[]): string {
+export interface RenderPageOptions {
+  // When true, the page is outside the mirror's public root tree, so it is kept
+  // out of search indexes (it stays reachable only via its direct link).
+  noindex?: boolean
+}
+
+export function robotsMetaTag(noindex?: boolean): string {
+  return noindex ? '<meta name="robots" content="noindex, nofollow">' : ''
+}
+
+export function renderPage(pageData: PageData, config: SiteConfig, breadcrumbs?: Breadcrumb[], options?: RenderPageOptions): string {
   const title = getPageTitle(pageData.page)
   const icon = getPageIcon(pageData.page)
   const cover = getPageCover(pageData.page)
@@ -115,6 +125,7 @@ export function renderPage(pageData: PageData, config: SiteConfig, breadcrumbs?:
   <title>${escapeHtml(pageTitle)}</title>
   <meta name="description" content="${escapeAttr(pageDescription)}">
   <meta name="theme-color" content="${escapeAttr(themeColor)}">
+  ${robotsMetaTag(options?.noindex)}
   <link rel="canonical" href="${escapeAttr(canonicalUrl)}">
   <meta property="og:site_name" content="${escapeAttr(config.siteName)}">
   <meta property="og:title" content="${escapeAttr(fullTitle)}">

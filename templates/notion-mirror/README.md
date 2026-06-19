@@ -34,6 +34,8 @@ bun run setup
 
 `bun run setup` creates `.env` and `.dev.vars` from the examples and copies `NOTION_API_KEY` into both files when that env var is already present in your shell.
 
+Set `GOOGLE_ANALYTICS_CONSENT_MODE=true` together with `GOOGLE_TAG_ID` to show the Google Analytics consent banner. It is disabled by default.
+
 Deploy with:
 
 ```sh

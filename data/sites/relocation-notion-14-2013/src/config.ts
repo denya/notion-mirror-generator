@@ -13,6 +13,7 @@ export interface SiteConfig {
   shortLinkRedirectStatus: ShortLinkRedirectStatus
   googleFont: string
   googleTagId?: string
+  googleAnalyticsConsentMode: boolean
   logoUrl: string
   themeColor: string
   footerOwnerName: string
@@ -37,6 +38,7 @@ export interface Env {
   CACHE_TTL_SECONDS: string
   NOTION_WORKSPACE_SLUG?: string
   GOOGLE_TAG_ID?: string
+  GOOGLE_ANALYTICS_CONSENT_MODE?: string
   SHORT_LINKS_JSON?: string
   SHORT_LINK_REDIRECT_STATUS?: string
   ENABLE_TOC?: string
@@ -70,6 +72,7 @@ export function getConfig(env: Env): SiteConfig {
     shortLinkRedirectStatus: parseShortLinkRedirectStatus(env.SHORT_LINK_REDIRECT_STATUS),
     googleFont: 'Inter',
     googleTagId: env.GOOGLE_TAG_ID,
+    googleAnalyticsConsentMode: env.GOOGLE_ANALYTICS_CONSENT_MODE === 'true',
     logoUrl: BRAND_LOGO_URL,
     themeColor: BRAND_THEME_COLOR,
     footerOwnerName: FOOTER_OWNER_NAME,

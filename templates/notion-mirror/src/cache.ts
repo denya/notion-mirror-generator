@@ -22,6 +22,8 @@ export interface CachedPageMetadataEntry {
   pageId: string
   path: string
   title: string
+  icon?: string | null
+  parentPageId?: string | null
   lastModified?: string
   cachedAt: number
 }
@@ -203,6 +205,33 @@ export async function getCachedPageMetadata(env: Env, pageId: string): Promise<C
   }
 }
 
+// Deletes every page-meta entry whose normalized page id is not in keepPageIds.
+// Used to keep the page index (TOC + sitemap) authoritative: pages that are no
+// longer part of the mirror's root page tree are evicted instead of lingering.
+export async function pruneCachedPageMetadata(env: Env, keepPageIds: Set<string>): Promise<void> {
+  const keep = new Set([...keepPageIds].map((id) => normalizePageId(id)))
+  let cursor: string | undefined
+
+  do {
+    const result = await env.PAGE_CACHE.list({ prefix: 'page-meta:', cursor })
+    for (const key of result.keys) {
+      const normalizedId = key.name.slice('page-meta:'.length)
+      if (!keep.has(normalizedId)) {
+        await env.PAGE_CACHE.delete(key.name)
+      }
+    }
+
+    cursor = result.list_complete ? undefined : result.cursor
+  } while (cursor)
+}
+
+// A page-index crawl that comes back smaller than the cached index is treated as
+// partial (Notion throttling / Worker subrequest limits) and must not shrink the
+// live index. The authoritative full crawl runs offline in warm-cache.
+export function crawlWouldShrinkIndex(crawledCount: number, cachedCount: number): boolean {
+  return cachedCount > 0 && crawledCount < cachedCount
+}
+
 export async function getCachedImage(env: Env, key: string): Promise<R2ObjectBody | null> {
   return env.IMAGE_STORE.get(`img/${key}`)
 }
@@ -347,6 +376,8 @@ function normalizeCachedPageMetadataEntry(entry: unknown): CachedPageMetadataEnt
     pageId: page.pageId,
     path: page.path,
     title: typeof page.title === 'string' ? page.title : 'Untitled',
+    ...(typeof page.icon === 'string' ? { icon: page.icon } : {}),
+    ...(typeof page.parentPageId === 'string' ? { parentPageId: page.parentPageId } : {}),
     ...(typeof page.lastModified === 'string' ? { lastModified: page.lastModified } : {}),
     cachedAt: typeof page.cachedAt === 'number' ? page.cachedAt : 0,
   }

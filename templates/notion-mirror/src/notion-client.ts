@@ -68,21 +68,6 @@ export interface PageData {
   childPages: { id: string; title: string }[]
 }
 
-export interface WorkspacePageIndexEntry {
-  pageId: string
-  title: string
-  icon?: string | null
-  parentPageId?: string | null
-  lastModified?: string
-}
-
-interface SearchResultPage extends Page {
-  public_url?: string | null
-  in_trash?: boolean
-  archived?: boolean
-  is_archived?: boolean
-}
-
 interface PageReferenceMetadata {
   title: string | null
   icon: string | null
@@ -185,41 +170,6 @@ export async function fetchPageData(apiKey: string, pageId: string, env?: Env): 
   return { page, blocks, childPages }
 }
 
-export async function fetchWorkspacePublicPages(
-  apiKey: string,
-  rootPageId: string,
-): Promise<WorkspacePageIndexEntry[]> {
-  const pagesById = new Map<string, WorkspacePageIndexEntry>()
-  const normalizedRootPageId = normalizePageId(rootPageId)
-  let cursor: string | undefined
-
-  do {
-    const response = await notionSearchPages(apiKey, cursor)
-
-    for (const page of response.results) {
-      if (page.in_trash || page.archived || page.is_archived) {
-        continue
-      }
-
-      const normalizedPageId = normalizePageId(page.id)
-      if (!page.public_url && normalizedPageId !== normalizedRootPageId) {
-        continue
-      }
-
-      pagesById.set(normalizedPageId, toWorkspacePageIndexEntry(page))
-    }
-
-    cursor = response.has_more ? response.next_cursor || undefined : undefined
-  } while (cursor)
-
-  if (!pagesById.has(normalizedRootPageId)) {
-    const rootPage = await fetchPageById(apiKey, rootPageId)
-    pagesById.set(normalizedRootPageId, toWorkspacePageIndexEntry(rootPage))
-  }
-
-  return [...pagesById.values()]
-}
-
 async function fetchAllBlocks(apiKey: string, blockId: string, depth = 0): Promise<Block[]> {
   if (depth > MAX_BLOCK_DEPTH) return []
 
@@ -252,52 +202,6 @@ async function fetchAllBlocks(apiKey: string, blockId: string, depth = 0): Promi
   } while (cursor)
 
   return blocks
-}
-
-async function notionSearchPages(
-  apiKey: string,
-  startCursor?: string,
-): Promise<{ results: SearchResultPage[]; has_more: boolean; next_cursor?: string | null }> {
-  const body: Record<string, unknown> = {
-    filter: {
-      value: 'page',
-      property: 'object',
-    },
-    page_size: 100,
-  }
-
-  if (startCursor) {
-    body.start_cursor = startCursor
-  }
-
-  let delayMs = 1000
-  for (let attempt = 1; attempt <= 6; attempt += 1) {
-    const response = await fetch(`${NOTION_API}/search`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Notion-Version': NOTION_VERSION,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    })
-
-    if (response.ok) {
-      return response.json()
-    }
-
-    const retryAfter = Number(response.headers.get('retry-after') || '0')
-    const shouldRetry = response.status === 429 || response.status >= 500
-    const errorText = await response.text()
-    if (!shouldRetry || attempt === 6) {
-      throw new Error(`Notion API search failed (${response.status}): ${errorText}`)
-    }
-
-    await sleep(retryAfter > 0 ? retryAfter * 1000 : delayMs)
-    delayMs *= 2
-  }
-
-  throw new Error('Notion API search failed after retries.')
 }
 
 async function mapWithConcurrency<T>(
@@ -710,20 +614,3 @@ export function getPageCover(page: Page): string | null {
   return null
 }
 
-function toWorkspacePageIndexEntry(page: Page): WorkspacePageIndexEntry {
-  const icon = getPageIcon(page)
-  const parentPageId = getParentPageId(page)
-  return {
-    pageId: page.id,
-    title: getPageTitle(page),
-    ...(icon ? { icon } : {}),
-    ...(parentPageId ? { parentPageId } : {}),
-    ...(page.last_edited_time ? { lastModified: page.last_edited_time } : {}),
-  }
-}
-
-async function sleep(ms: number): Promise<void> {
-  if (ms > 0) {
-    await new Promise((resolve) => setTimeout(resolve, ms))
-  }
-}

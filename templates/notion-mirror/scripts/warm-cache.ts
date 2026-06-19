@@ -38,7 +38,14 @@ const pageQueue = pageInputs.length ? pageInputs.map((value) => toPageId(value, 
 const seenPages = new Set<string>()
 const warmedImages = refreshImages ? new Set<string>() : await readCachedWarmedImages()
 const warmedAssets = await readCachedWarmedAssets()
-const sitemapEntries = new Map<string, SitemapEntry>((await readCachedSitemapEntries()).map((entry) => [entry.path, entry]))
+// A full warm from the root page re-crawls the whole tree, so its uploaded
+// sitemap is authoritative and must not inherit stale entries (e.g. pages that
+// left the tree or were unpublished) from the previous run's cache. Partial and
+// workspace warms keep the cache so a single-page warm doesn't drop the rest.
+const authoritativeIndexRun = !workspaceMode && pageInputs.length === 0
+const sitemapEntries = new Map<string, SitemapEntry>(
+  authoritativeIndexRun ? [] : (await readCachedSitemapEntries()).map((entry) => [entry.path, entry]),
+)
 const pageMetadataEntries = new Map<string, { pageId: string; path: string; title: string; lastModified?: string; cachedAt: number }>()
 const skippedPages: Array<{ pageId: string; reason: string }> = []
 const PAGE_DELAY_MS = Number(process.env.WARM_PAGE_DELAY_MS || '350')

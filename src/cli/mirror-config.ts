@@ -1,5 +1,5 @@
 import * as changeCase from 'change-case-all'
-import { promptText } from './prompt-helpers'
+import { promptConfirm, promptText } from './prompt-helpers'
 
 export interface MirrorParserConfig {
   projectName: string
@@ -10,6 +10,7 @@ export interface MirrorParserConfig {
   siteDescription: string
   notionWorkspaceSlug: string
   googleTagId: string
+  googleAnalyticsConsentMode: boolean
   shortLinks: Record<string, string>
   shortLinkRedirectStatus: string
   wranglerWorkerName: string
@@ -57,6 +58,11 @@ export async function getMirrorParserConfig(projectName: string | undefined): Pr
   const googleTagId = await promptText({
     key: 'googleTagId',
     message: 'Google Tag ID (optional):',
+  })
+  const googleAnalyticsConsentMode = await promptConfirm({
+    key: 'googleAnalyticsConsentMode',
+    message: 'Enable Google Analytics consent banner?',
+    defaultValue: false,
   })
   const shortLinkRedirectStatus = await promptText({
     key: 'shortLinkRedirectStatus',
@@ -121,6 +127,7 @@ export async function getMirrorParserConfig(projectName: string | undefined): Pr
     siteDescription,
     notionWorkspaceSlug,
     googleTagId,
+    googleAnalyticsConsentMode,
     shortLinks,
     shortLinkRedirectStatus,
     wranglerWorkerName: `${packageJsonName}-notion-proxy`,

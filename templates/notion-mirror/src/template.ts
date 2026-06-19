@@ -11,18 +11,48 @@ export interface Breadcrumb {
   href: string | null
 }
 
-export function renderGoogleTagScript(googleTagId?: string): string {
+const googleConsentStorageKey = 'notion-mirror-google-consent'
+
+export function renderGoogleTagScript(
+  googleTagId?: string,
+  options: { consentMode?: boolean } = {},
+): string {
   if (!googleTagId) {
     return ''
   }
 
   const googleTagIdJs = googleTagId.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+  const consentScript = options.consentMode
+    ? `
+    const googleConsentStorageKey = '${googleConsentStorageKey}';
+    const googleConsentState = (value) => ({
+      'ad_storage': value,
+      'ad_user_data': value,
+      'ad_personalization': value,
+      'analytics_storage': value
+    });
+    const readStoredGoogleConsent = () => {
+      try {
+        const value = window.localStorage.getItem(googleConsentStorageKey);
+        return value === 'granted' || value === 'denied' ? value : null;
+      } catch {
+        return null;
+      }
+    };
+    const storedGoogleConsent = readStoredGoogleConsent();
+    gtag('consent', 'default', googleConsentState('denied'));
+    if (storedGoogleConsent) {
+      gtag('consent', 'update', googleConsentState(storedGoogleConsent));
+    }
+`
+    : ''
 
   return `  <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(googleTagId)}"></script>
   <script>
     window.dataLayer = window.dataLayer || [];
     function gtag(){dataLayer.push(arguments);}
+${consentScript}    window.gtag = gtag;
     gtag('js', new Date());
 
     gtag('config', '${googleTagIdJs}');
@@ -37,7 +67,17 @@ export function applyPageHtmlOptions(html: string, config: Pick<SiteConfig, 'alw
   return replaceHeadFaviconLinks(html, renderFaviconLinks(null, config.logoUrl))
 }
 
-export function renderPage(pageData: PageData, config: SiteConfig, breadcrumbs?: Breadcrumb[]): string {
+export interface RenderPageOptions {
+  // When true, the page is outside the mirror's public root tree, so it is kept
+  // out of search indexes (it stays reachable only via its direct link).
+  noindex?: boolean
+}
+
+export function robotsMetaTag(noindex?: boolean): string {
+  return noindex ? '<meta name="robots" content="noindex, nofollow">' : ''
+}
+
+export function renderPage(pageData: PageData, config: SiteConfig, breadcrumbs?: Breadcrumb[], options?: RenderPageOptions): string {
   const title = getPageTitle(pageData.page)
   const icon = getPageIcon(pageData.page)
   const cover = getPageCover(pageData.page)
@@ -72,7 +112,10 @@ export function renderPage(pageData: PageData, config: SiteConfig, breadcrumbs?:
     : ''
   const twitterCard = socialImage ? 'summary_large_image' : 'summary'
   const faviconLinks = renderFaviconLinks(config.alwaysUseSiteLogoFavicon ? null : icon, logoUrl)
-  const googleTagScript = renderGoogleTagScript(config.googleTagId)
+  const googleTagScript = renderGoogleTagScript(config.googleTagId, {
+    consentMode: config.googleAnalyticsConsentMode,
+  })
+  const googleConsentBanner = renderGoogleConsentBanner(config.googleTagId, config.googleAnalyticsConsentMode)
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -82,6 +125,7 @@ export function renderPage(pageData: PageData, config: SiteConfig, breadcrumbs?:
   <title>${escapeHtml(pageTitle)}</title>
   <meta name="description" content="${escapeAttr(pageDescription)}">
   <meta name="theme-color" content="${escapeAttr(themeColor)}">
+  ${robotsMetaTag(options?.noindex)}
   <link rel="canonical" href="${escapeAttr(canonicalUrl)}">
   <meta property="og:site_name" content="${escapeAttr(config.siteName)}">
   <meta property="og:title" content="${escapeAttr(fullTitle)}">
@@ -122,8 +166,62 @@ export function renderPage(pageData: PageData, config: SiteConfig, breadcrumbs?:
     </footer>
   </div>
   ${enhancements}
+  ${googleConsentBanner}
 </body>
 </html>`
+}
+
+function renderGoogleConsentBanner(googleTagId?: string, consentMode?: boolean): string {
+  if (!googleTagId || !consentMode) {
+    return ''
+  }
+
+  return `<div class="consent-banner" id="google-consent-banner" hidden role="region" aria-label="Privacy preferences">
+    <p>We use Google Analytics to understand site visits. Accept to allow analytics and Google measurement storage, or decline to keep it off.</p>
+    <div class="consent-actions">
+      <button type="button" class="consent-button consent-button-secondary" data-google-consent="denied">Decline</button>
+      <button type="button" class="consent-button consent-button-primary" data-google-consent="granted">Accept</button>
+    </div>
+  </div>
+  <script>
+    (() => {
+      const banner = document.getElementById('google-consent-banner');
+      if (!banner) return;
+      const storageKey = '${googleConsentStorageKey}';
+      const consentState = (value) => ({
+        'ad_storage': value,
+        'ad_user_data': value,
+        'ad_personalization': value,
+        'analytics_storage': value
+      });
+      const readStoredConsent = () => {
+        try {
+          const value = window.localStorage.getItem(storageKey);
+          return value === 'granted' || value === 'denied' ? value : null;
+        } catch {
+          return null;
+        }
+      };
+      const writeStoredConsent = (value) => {
+        try {
+          window.localStorage.setItem(storageKey, value);
+        } catch {}
+      };
+      const storedConsent = readStoredConsent();
+      if (storedConsent) return;
+      banner.hidden = false;
+      banner.addEventListener('click', (event) => {
+        const button = event.target instanceof Element ? event.target.closest('[data-google-consent]') : null;
+        if (!(button instanceof HTMLElement)) return;
+        const consent = button.dataset.googleConsent === 'granted' ? 'granted' : 'denied';
+        writeStoredConsent(consent);
+        if (typeof window.gtag === 'function') {
+          window.gtag('consent', 'update', consentState(consent));
+        }
+        banner.hidden = true;
+      });
+    })();
+  </script>`
 }
 
 function renderFaviconLinks(icon: string | null, fallbackLogoUrl: string): string {
@@ -270,6 +368,68 @@ function getStyles(fontFamily: string): string {
     .skip-link:focus {
       top: 0;
       outline: none;
+    }
+    .consent-banner {
+      position: fixed;
+      left: 16px;
+      right: 16px;
+      bottom: max(16px, env(safe-area-inset-bottom));
+      z-index: 300;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      width: min(760px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 14px 16px;
+      background: var(--bg-color);
+      color: var(--text-color);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      box-shadow: 0 18px 50px color-mix(in srgb, #000 20%, transparent);
+    }
+    .consent-banner[hidden] { display: none; }
+    .consent-banner p {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 0.92rem;
+      line-height: 1.45;
+    }
+    .consent-actions {
+      display: flex;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+    .consent-button {
+      min-height: 38px;
+      padding: 0 14px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      font: inherit;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .consent-button-primary {
+      background: var(--accent-color);
+      border-color: var(--accent-color);
+      color: #fff;
+    }
+    .consent-button-secondary {
+      background: var(--bg-secondary);
+      color: var(--text-color);
+    }
+    @media (max-width: 640px) {
+      .consent-banner {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .consent-actions {
+        justify-content: stretch;
+      }
+      .consent-button {
+        flex: 1 1 0;
+      }
     }
     body {
       font-family: var(--font-family);

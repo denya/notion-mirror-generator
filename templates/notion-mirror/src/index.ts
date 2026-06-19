@@ -3,7 +3,7 @@ import type { Env } from './config'
 import { getConfig } from './config'
 import { fetchPageAncestors, fetchPageData, collectBookmarkUrls, getPageCover, getPageIcon, type Block, type PageData, warmBookmarkMetadata } from './notion-client'
 import { applyPageHtmlOptions, renderGoogleTagScript, renderPage } from './template'
-import { getCachedPage, getCachedPageMetadata, getCachedSitemap, isCachedPageFresh, isCachedSitemapFresh, listCachedPageMetadata, pruneCachedPageMetadata, setCachedAssetMetadataBatch, setCachedPage, setCachedPageMetadata, setCachedSitemap, type CachedPageMetadataEntry } from './cache'
+import { crawlWouldShrinkIndex, getCachedPage, getCachedPageMetadata, getCachedSitemap, isCachedPageFresh, isCachedSitemapFresh, listCachedPageMetadata, pruneCachedPageMetadata, setCachedAssetMetadataBatch, setCachedPage, setCachedPageMetadata, setCachedSitemap, type CachedPageMetadataEntry } from './cache'
 import { handleImageProxy, warmImageCache } from './image-proxy'
 import { handleAssetProxy } from './asset-proxy'
 import { escapeHtml } from './rich-text'
@@ -338,8 +338,19 @@ async function refreshPageIndex(env: Env, config: ReturnType<typeof getConfig>):
     }))
     .sort((left, right) => left.path.localeCompare(right.path))
 
-  // The crawl is authoritative: drop any previously-indexed page that is no
-  // longer reachable (e.g. unpublished or moved out of the tree).
+  // The crawl runs inside a single Worker invocation and can be throttled by
+  // Notion rate limits or the subrequest budget, coming back with only a partial
+  // set (sometimes just the root). Never shrink a populated index from such a
+  // partial crawl — that would collapse the TOC/sitemap. The authoritative full
+  // crawl runs offline in warm-cache, which paces its requests.
+  const existing = await listCachedPageMetadata(env)
+  if (crawlWouldShrinkIndex(indexedPages.length, existing.length)) {
+    console.warn(`Page index crawl returned ${indexedPages.length} page(s) (< ${existing.length} cached); keeping existing index.`)
+    return existing
+  }
+
+  // Healthy crawl: drop any previously-indexed page that is no longer reachable
+  // (e.g. unpublished or moved out of the tree).
   await pruneCachedPageMetadata(env, new Set(indexedPages.map((entry) => entry.pageId)))
   await Promise.all(indexedPages.map((entry) => setCachedPageMetadata(env, entry)))
   return indexedPages

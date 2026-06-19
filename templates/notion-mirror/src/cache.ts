@@ -225,6 +225,13 @@ export async function pruneCachedPageMetadata(env: Env, keepPageIds: Set<string>
   } while (cursor)
 }
 
+// A page-index crawl that comes back smaller than the cached index is treated as
+// partial (Notion throttling / Worker subrequest limits) and must not shrink the
+// live index. The authoritative full crawl runs offline in warm-cache.
+export function crawlWouldShrinkIndex(crawledCount: number, cachedCount: number): boolean {
+  return cachedCount > 0 && crawledCount < cachedCount
+}
+
 export async function getCachedImage(env: Env, key: string): Promise<R2ObjectBody | null> {
   return env.IMAGE_STORE.get(`img/${key}`)
 }

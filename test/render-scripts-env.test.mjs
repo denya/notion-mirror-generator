@@ -7,7 +7,10 @@ import { fileURLToPath } from 'node:url'
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const TEMPLATE_DIR = join(REPO_ROOT, 'templates/notion-mirror')
 
-// The template files are EJS sources and warm-cache.ts runs its warm at import
+// Scripts that build the Worker Env from wrangler.toml and render pages with it.
+const RENDERING_SCRIPTS = ['scripts/warm-cache.ts', 'scripts/backup-site.ts']
+
+// The template files are EJS sources and the scripts run their work at import
 // time, so the check reads them as text instead of importing them.
 
 function envInterfaceKeys(configSource) {
@@ -22,32 +25,37 @@ function wranglerVarKeys(wranglerSource) {
   return new Set([...section.matchAll(/^([A-Z][A-Z0-9_]*)\s*=/gm)].map((match) => match[1]))
 }
 
-function buildEnvBody(scriptSource) {
+function buildEnvBody(scriptSource, scriptPath) {
   const body = scriptSource.match(/\nfunction buildEnv\(\): Env \{\n([\s\S]*?)\n\}\n/)?.[1]
-  assert.ok(body, 'function buildEnv(): Env not found in scripts/warm-cache.ts')
+  assert.ok(body, `function buildEnv(): Env not found in ${scriptPath}`)
   return body
 }
 
-test('warm-cache buildEnv passes every Env key that wrangler.toml [vars] defines', async () => {
-  const [configSource, wranglerSource, warmCacheSource] = await Promise.all([
+async function sharedEnvVarKeys() {
+  const [configSource, wranglerSource] = await Promise.all([
     readFile(join(TEMPLATE_DIR, 'src/config.ts'), 'utf8'),
     readFile(join(TEMPLATE_DIR, 'wrangler.toml'), 'utf8'),
-    readFile(join(TEMPLATE_DIR, 'scripts/warm-cache.ts'), 'utf8'),
   ])
-
   const envKeys = envInterfaceKeys(configSource)
   const varKeys = wranglerVarKeys(wranglerSource)
-  const body = buildEnvBody(warmCacheSource)
 
   // Guard the parsers themselves: an empty intersection would pass vacuously.
   assert.ok(varKeys.has('GOOGLE_ANALYTICS_CONSENT_MODE'), 'wrangler [vars] parser missed GOOGLE_ANALYTICS_CONSENT_MODE')
   assert.ok(envKeys.has('GOOGLE_ANALYTICS_CONSENT_MODE'), 'Env parser missed GOOGLE_ANALYTICS_CONSENT_MODE')
 
-  const required = [...varKeys].filter((key) => envKeys.has(key)).sort()
-  assert.ok(required.length >= 10, `expected the shared Env/[vars] keys, got ${required.join(', ')}`)
+  const shared = [...varKeys].filter((key) => envKeys.has(key)).sort()
+  assert.ok(shared.length >= 10, `expected the shared Env/[vars] keys, got ${shared.join(', ')}`)
+  return shared
+}
 
-  // Pages rendered by warm are cached as final HTML, so a dropped key silently
-  // changes the live site (e.g. no consent banner without GOOGLE_ANALYTICS_CONSENT_MODE).
-  const missing = required.filter((key) => !new RegExp(`^\\s*${key}:[^\\n]*\\bvars\\.${key}\\b`, 'm').test(body))
-  assert.deepEqual(missing, [], `buildEnv() in scripts/warm-cache.ts does not read these [vars] keys: ${missing.join(', ')}`)
-})
+for (const scriptPath of RENDERING_SCRIPTS) {
+  test(`${scriptPath} buildEnv passes every Env key that wrangler.toml [vars] defines`, async () => {
+    const required = await sharedEnvVarKeys()
+    const body = buildEnvBody(await readFile(join(TEMPLATE_DIR, scriptPath), 'utf8'), scriptPath)
+
+    // Pages are rendered with this Env and stored as final HTML, so a dropped key
+    // silently changes the output (e.g. no consent banner without GOOGLE_ANALYTICS_CONSENT_MODE).
+    const missing = required.filter((key) => !new RegExp(`^\\s*${key}:[^\\n]*\\bvars\\.${key}\\b`, 'm').test(body))
+    assert.deepEqual(missing, [], `buildEnv() in ${scriptPath} does not read these [vars] keys: ${missing.join(', ')}`)
+  })
+}

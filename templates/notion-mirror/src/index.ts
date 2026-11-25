@@ -1,19 +1,20 @@
 import { Hono } from 'hono'
 import type { Env } from './config'
 import { getConfig } from './config'
-import { fetchPageAncestors, fetchPageData, fetchWorkspacePublicPages, collectBookmarkUrls, getPageCover, getPageIcon, type Block, type PageData, warmBookmarkMetadata } from './notion-client'
+import { fetchPageAncestors, fetchPageData, collectBookmarkUrls, getPageCover, getPageIcon, type Block, type PageData, warmBookmarkMetadata } from './notion-client'
 import { applyPageHtmlOptions, renderGoogleTagScript, renderPage } from './template'
-import { getCachedPage, getCachedPageMetadata, getCachedSitemap, isCachedPageFresh, isCachedSitemapFresh, listCachedPageMetadata, setCachedAssetMetadataBatch, setCachedPage, setCachedPageMetadata, setCachedSitemap, type CachedPageMetadataEntry } from './cache'
+import { crawlWouldShrinkIndex, getCachedPage, getCachedPageMetadata, getCachedSitemap, isCachedPageFresh, isCachedSitemapFresh, listCachedPageMetadata, pruneCachedPageMetadata, setCachedAssetMetadataBatch, setCachedPage, setCachedPageMetadata, setCachedSitemap, type CachedPageMetadataEntry } from './cache'
 import { handleImageProxy, warmImageCache } from './image-proxy'
 import { handleAssetProxy } from './asset-proxy'
 import { escapeHtml } from './rich-text'
 import { canonicalPagePath, extractPageId } from './page-path'
 import { getPageTitle } from './notion-client'
-import { isStaticOnlySitemapEntries, renderSitemapXml, sitemapEntriesFromIndexedPages, staticSitemapEntries, type SitemapEntry } from './sitemap'
+import { collectReachablePages, isStaticOnlySitemapEntries, renderSitemapXml, sitemapEntriesFromIndexedPages, staticSitemapEntries, type SitemapEntry } from './sitemap'
 import { buildPageBreadcrumbs } from './breadcrumbs'
 import { resolveShortLinkRedirect } from './short-links'
 import { collectPageAssetMetadata } from './document-assets'
 import { canonicalRedirectTarget, extractCanonicalPathFromHtml } from './canonical-redirect'
+import { handleSyncWrite } from './sync-write'
 
 type AppEnv = { Bindings: Env }
 interface RenderedPageCacheResult {
@@ -27,6 +28,9 @@ const app = new Hono<AppEnv>()
 const pendingPageUpdates = new Map<string, Promise<RenderedPageCacheResult>>()
 let pendingSitemapUpdate: Promise<SitemapEntry[]> | null = null
 let pendingPageIndexUpdate: Promise<CachedPageMetadataEntry[]> | null = null
+
+// KV write access for the sync daemon (sync/daemon.ts); 404 unless SYNC_WRITE_SECRET is set and sent.
+app.all('/_sync/kv/*', (c) => handleSyncWrite(c.req.raw, c.env, c.req.path.slice('/_sync/kv/'.length)))
 
 app.use('*', async (c, next) => {
   const config = getConfig(c.env)
@@ -62,7 +66,7 @@ app.get('/sitemap.xml', async (c) => {
         return xmlResponse(config.domain, await scheduleSitemapRefresh(c.env, config))
       }
 
-      if (!isCachedSitemapFresh(cached, config.cacheTtlSeconds)) {
+      if (config.liveRefresh && !isCachedSitemapFresh(cached, config.cacheTtlSeconds)) {
         c.executionCtx.waitUntil(scheduleSitemapRefresh(c.env, config).then(() => undefined))
       }
 
@@ -164,7 +168,10 @@ app.get('/:slug', async (c) => {
 async function servePage(c: any, pageId: string): Promise<Response> {
   const env: Env = c.env
   const config = getConfig(env)
-  const refresh = c.req.query('refresh') === '1'
+  // With LIVE_REFRESH=false an external sync job keeps KV current: `?refresh=1`
+  // and TTL expiry no longer re-render from Notion (big pages exceed the Free
+  // plan's subrequest limit and the attempt silently kept the stale copy).
+  const refresh = config.liveRefresh && c.req.query('refresh') === '1'
   const requestPath = c.req.path
 
   if (pageId.replace(/-/g, '') === config.rootPageId.replace(/-/g, '') && requestPath !== '/') {
@@ -195,7 +202,7 @@ async function servePage(c: any, pageId: string): Promise<Response> {
       return redirect
     }
 
-    const shouldRevalidate = !isCachedPageFresh(cached, config.cacheTtlSeconds)
+    const shouldRevalidate = config.liveRefresh && !isCachedPageFresh(cached, config.cacheTtlSeconds)
     if (shouldRevalidate) {
       c.executionCtx.waitUntil(
         schedulePageUpdate(env, config, pageId)
@@ -228,16 +235,32 @@ async function fetchAndCachePage(env: Env, config: ReturnType<typeof getConfig>,
   const canonicalPath = canonicalPagePath(pageData.page.id, title, config.rootPageId)
   const ancestors = await fetchPageAncestors(env.NOTION_API_KEY, pageData.page, config.rootPageId)
   const breadcrumbs = buildPageBreadcrumbs(config, pageId, title, ancestors)
-  const html = renderPage(pageData, config, breadcrumbs)
+
+  // A page belongs to the public mirror only if it is part of the root page tree.
+  // The root is always in scope; any other page must already be in the crawled
+  // index (refreshPageIndex is authoritative). A page opened only by its direct
+  // link — e.g. a workspace-level page outside the tree — is served with noindex
+  // and is never added to the sitemap index.
+  const isRootPage = pageData.page.id.replace(/-/g, '') === config.rootPageId.replace(/-/g, '')
+  const inScope = isRootPage || (await getCachedPageMetadata(env, pageData.page.id)) !== null
+
+  const html = renderPage(pageData, config, breadcrumbs, { noindex: !inScope })
   const cachedAt = Date.now()
   await setCachedPage(env, pageId, html, config.cacheTtlSeconds)
-  await setCachedPageMetadata(env, {
-    pageId: pageData.page.id,
-    path: canonicalPath,
-    title,
-    ...(pageData.page.last_edited_time ? { lastModified: pageData.page.last_edited_time } : {}),
-    cachedAt,
-  })
+
+  if (inScope) {
+    const icon = getPageIcon(pageData.page)
+    const parentId = pageData.page.parent?.type === 'page_id' ? pageData.page.parent.page_id || null : null
+    await setCachedPageMetadata(env, {
+      pageId: pageData.page.id,
+      path: canonicalPath,
+      title,
+      ...(icon ? { icon } : {}),
+      ...(parentId ? { parentPageId: parentId } : {}),
+      ...(pageData.page.last_edited_time ? { lastModified: pageData.page.last_edited_time } : {}),
+      cachedAt,
+    })
+  }
 
   return {
     html,
@@ -303,18 +326,39 @@ function schedulePageIndexRefresh(env: Env, config: ReturnType<typeof getConfig>
 }
 
 async function refreshPageIndex(env: Env, config: ReturnType<typeof getConfig>): Promise<CachedPageMetadataEntry[]> {
-  const pages = await fetchWorkspacePublicPages(env.NOTION_API_KEY, config.rootPageId)
+  // Scope the index to the root page tree (descendants + linked pages). Pages
+  // published elsewhere in the workspace are never reached, so they stay out of
+  // the TOC and sitemap.
+  const pages = await collectReachablePages(env.NOTION_API_KEY, config, {
+    onError: (id, error) => console.error(`Page index crawl skipped ${id}:`, (error as any)?.message || error),
+  })
   const cachedAt = Date.now()
   const indexedPages = pages
     .map((page) => ({
       pageId: page.pageId,
       path: canonicalPagePath(page.pageId, page.title, config.rootPageId),
       title: page.title,
+      ...(page.icon ? { icon: page.icon } : {}),
+      ...(page.parentPageId ? { parentPageId: page.parentPageId } : {}),
       ...(page.lastModified ? { lastModified: page.lastModified } : {}),
       cachedAt,
     }))
     .sort((left, right) => left.path.localeCompare(right.path))
 
+  // The crawl runs inside a single Worker invocation and can be throttled by
+  // Notion rate limits or the subrequest budget, coming back with only a partial
+  // set (sometimes just the root). Never shrink a populated index from such a
+  // partial crawl — that would collapse the TOC/sitemap. The authoritative full
+  // crawl runs offline in warm-cache, which paces its requests.
+  const existing = await listCachedPageMetadata(env)
+  if (crawlWouldShrinkIndex(indexedPages.length, existing.length)) {
+    console.warn(`Page index crawl returned ${indexedPages.length} page(s) (< ${existing.length} cached); keeping existing index.`)
+    return existing
+  }
+
+  // Healthy crawl: drop any previously-indexed page that is no longer reachable
+  // (e.g. unpublished or moved out of the tree).
+  await pruneCachedPageMetadata(env, new Set(indexedPages.map((entry) => entry.pageId)))
   await Promise.all(indexedPages.map((entry) => setCachedPageMetadata(env, entry)))
   return indexedPages
 }

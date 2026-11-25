@@ -99,3 +99,28 @@ Use:
 - `bun run warm:fresh` for a full refresh
 
 If you are driving this through Codex or Claude Code, use the repo-local skills in `.codex/skills/setup-notion-mirror/` and `.codex/skills/site-warmup/`.
+
+## Sync daemon (optional)
+
+The Worker cannot re-render big pages on the Workers Free plan (50 subrequests per
+invocation; a long page needs one Notion call per block with children). The sync
+daemon renders outside the Worker and keeps KV current:
+
+- every `SYNC_INTERVAL_MIN` (15) minutes one Notion search; pages edited since
+  their last render (edit older than 3 min) are re-rendered with
+  `warm-cache --refresh-notion --no-crawl <ids>`;
+- a renamed, new or removed page, a refreshed page linking outside the index, and
+  the nightly slot (`FULL_RUN_HOUR` in `FULL_RUN_TZ`, default 4 Europe/Madrid) run a full crawl;
+  a crawl that fails or loses more than max(3, 20 %) of the index is not published;
+- KV writes skip unchanged values and stop at `KV_DAILY_BUDGET` (KV Free: 1,000/day);
+- Telegram alerts on failures (`TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID`).
+
+KV writes go through the Worker's own `/_sync/kv` route, enabled by the Worker
+secret `SYNC_WRITE_SECRET` (`wrangler secret put SYNC_WRITE_SECRET`); give the
+daemon the same value plus `SYNC_WRITE_URL`. Without the secret the route answers
+404. Alternatively set `CLOUDFLARE_API_TOKEN` (Workers KV Storage: Edit) and
+`CLOUDFLARE_ACCOUNT_ID`.
+
+Deploy the `Dockerfile` as a long-lived container with a persistent `/data`
+volume and `NOTION_API_KEY`, then set `LIVE_REFRESH = "false"` in `wrangler.toml`
+and `wrangler deploy`. Check it with `bun run sync:dry-run`.

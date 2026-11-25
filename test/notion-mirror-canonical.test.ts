@@ -29,10 +29,10 @@ test('canonicalRedirectTarget preserves manual refresh on non-root redirects', (
 })
 
 test('extractCanonicalPathFromHtml reads the rendered self-canonical URL', () => {
-  const html = '<link rel="canonical" href="https://spain.denyamsk.ru/startup-visa-188230bbb2ce48d7823ce96b15391606">'
+  const html = '<link rel="canonical" href="https://mirror.example.com/startup-visa-188230bbb2ce48d7823ce96b15391606">'
 
   assert.equal(
-    extractCanonicalPathFromHtml(html, 'spain.denyamsk.ru'),
+    extractCanonicalPathFromHtml(html, 'mirror.example.com'),
     '/startup-visa-188230bbb2ce48d7823ce96b15391606',
   )
   assert.equal(extractCanonicalPathFromHtml(html, 'other.example'), null)

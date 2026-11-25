@@ -7,6 +7,8 @@ export interface SiteConfig {
   brandName: string
   siteDescription: string
   cacheTtlSeconds: number
+  /** false: an external job owns freshness; the Worker never re-renders a cached page. */
+  liveRefresh: boolean
   notionWorkspaceSlug?: string
   slugToPage: Record<string, string>
   shortLinks: Record<string, string>
@@ -33,6 +35,8 @@ export interface Env {
   SITE_NAME: string
   SITE_DESCRIPTION: string
   CACHE_TTL_SECONDS: string
+  LIVE_REFRESH?: string
+  SYNC_WRITE_SECRET?: string
   NOTION_WORKSPACE_SLUG?: string
   GOOGLE_TAG_ID?: string
   GOOGLE_ANALYTICS_CONSENT_MODE?: string
@@ -58,6 +62,7 @@ export function getConfig(env: Env): SiteConfig {
     brandName: BRAND_NAME,
     siteDescription: env.SITE_DESCRIPTION,
     cacheTtlSeconds: parseInt(env.CACHE_TTL_SECONDS, 10) || 86400,
+    liveRefresh: env.LIVE_REFRESH !== 'false',
     notionWorkspaceSlug: env.NOTION_WORKSPACE_SLUG,
     slugToPage: {
       '': env.ROOT_PAGE_ID,

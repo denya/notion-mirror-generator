@@ -1,5 +1,5 @@
 import type { SiteConfig } from './config'
-import { fetchPageData, type Block, type PageData, type RichTextItem, getPageTitle } from './notion-client'
+import { fetchPageData, getPageIcon, type Block, type PageData, type RichTextItem, getPageTitle } from './notion-client'
 import { canonicalPagePath, extractPageId, rewriteNotionPageUrl } from './page-path'
 
 export interface SitemapEntry {
@@ -7,18 +7,32 @@ export interface SitemapEntry {
   lastModified?: string
 }
 
+// A page that is part of the mirror's public root tree: it is either a
+// descendant of the root page or reachable by a link/mention from within it.
+export interface ReachablePageEntry {
+  pageId: string
+  title: string
+  icon?: string | null
+  parentPageId?: string | null
+  lastModified?: string
+}
+
 interface CollectSitemapOptions {
   onError?: (pageId: string, error: unknown) => void
 }
 
-export async function collectSitemapEntries(
+// Crawls outward from the root page following child pages, page links and page
+// mentions, returning every reachable page with its metadata. This is the single
+// source of truth for which pages belong to the public mirror (TOC + sitemap):
+// pages elsewhere in the Notion workspace are never reached and never indexed.
+export async function collectReachablePages(
   apiKey: string,
   config: SiteConfig,
   options: CollectSitemapOptions = {},
-): Promise<SitemapEntry[]> {
+): Promise<ReachablePageEntry[]> {
   const visited = new Set<string>()
   const queued = new Set<string>()
-  const entries = new Map<string, SitemapEntry>()
+  const pages = new Map<string, ReachablePageEntry>()
   const pending = [config.rootPageId]
   queued.add(normalizePageId(config.rootPageId))
 
@@ -43,10 +57,7 @@ export async function collectSitemapEntries(
     }
 
     visited.add(normalizedId)
-
-    const title = getPageTitle(pageData.page)
-    const entry = sitemapEntryFromPage(pageData.page.id, title, config.rootPageId, pageData.page.last_edited_time)
-    entries.set(entry.path, entry)
+    pages.set(normalizedId, toReachablePageEntry(pageData.page))
 
     const reachablePageIds = extractReachablePageIds(pageData.blocks, config.notionWorkspaceSlug)
     for (const reachablePageId of reachablePageIds) {
@@ -60,7 +71,30 @@ export async function collectSitemapEntries(
     }
   }
 
-  return normalizeSitemapEntries(entries.values())
+  return [...pages.values()]
+}
+
+export async function collectSitemapEntries(
+  apiKey: string,
+  config: SiteConfig,
+  options: CollectSitemapOptions = {},
+): Promise<SitemapEntry[]> {
+  const pages = await collectReachablePages(apiKey, config, options)
+  return normalizeSitemapEntries(
+    pages.map((page) => sitemapEntryFromPage(page.pageId, page.title, config.rootPageId, page.lastModified)),
+  )
+}
+
+function toReachablePageEntry(page: PageData['page']): ReachablePageEntry {
+  const icon = getPageIcon(page)
+  const parentPageId = page.parent?.type === 'page_id' ? page.parent.page_id || null : null
+  return {
+    pageId: page.id,
+    title: getPageTitle(page),
+    ...(icon ? { icon } : {}),
+    ...(parentPageId ? { parentPageId } : {}),
+    ...(page.last_edited_time ? { lastModified: page.last_edited_time } : {}),
+  }
 }
 
 export function renderSitemapXml(domain: string, entries: SitemapEntry[]): string {

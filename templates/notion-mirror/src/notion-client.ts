@@ -5,7 +5,34 @@ import { extractPageId, pagePath } from './page-path'
 
 const NOTION_API = 'https://api.notion.com/v1'
 const NOTION_VERSION = '2022-06-28'
-const CHILD_FETCH_CONCURRENCY = 12
+const CHILD_FETCH_CONCURRENCY = readPositiveIntEnv('NOTION_CHILD_CONCURRENCY', 3)
+const NOTION_MAX_ATTEMPTS = readPositiveIntEnv('NOTION_MAX_ATTEMPTS', 6)
+const NOTION_RETRY_BASE_MS = readPositiveIntEnv('NOTION_RETRY_BASE_MS', 1000)
+const NOTION_RETRY_MAX_MS = 30_000
+const NOTION_REQUEST_TIMEOUT_MS = 30_000
+// One limit for every Notion request in the process: nested child fetches and
+// reference lookups each run their own mapWithConcurrency, so a per-call limit
+// alone multiplies with depth. Notion's documented average is 3 requests/s.
+const NOTION_MAX_IN_FLIGHT = readPositiveIntEnv('NOTION_MAX_IN_FLIGHT', 3)
+let notionInFlight = 0
+const notionWaiters: Array<() => void> = []
+
+async function acquireNotionSlot(): Promise<void> {
+  if (notionInFlight < NOTION_MAX_IN_FLIGHT) {
+    notionInFlight += 1
+    return
+  }
+  await new Promise<void>((resolve) => notionWaiters.push(resolve))
+}
+
+function releaseNotionSlot(): void {
+  const next = notionWaiters.shift()
+  if (next) {
+    next()
+  } else {
+    notionInFlight -= 1
+  }
+}
 const PUBLIC_NOTION_API = 'https://www.notion.so/api/v3/loadPageChunk'
 const MAX_BLOCK_DEPTH = 6
 const OG_METADATA_REVALIDATE_SECONDS = 60 * 60 * 24 * 7
@@ -68,26 +95,39 @@ export interface PageData {
   childPages: { id: string; title: string }[]
 }
 
-export interface WorkspacePageIndexEntry {
-  pageId: string
-  title: string
-  icon?: string | null
-  parentPageId?: string | null
-  lastModified?: string
-}
-
-interface SearchResultPage extends Page {
-  public_url?: string | null
-  in_trash?: boolean
-  archived?: boolean
-  is_archived?: boolean
-}
-
 interface PageReferenceMetadata {
   title: string | null
   icon: string | null
   isAccessible: boolean
 }
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = (globalThis as any).process?.env?.[name]
+  const value = Number(raw)
+  return Number.isInteger(value) && value > 0 ? value : fallback
+}
+
+export class NotionApiError extends Error {
+  constructor(readonly status: number, body: string, readonly path = '') {
+    super(`Notion API error ${status}${path ? ` (${path})` : ''}: ${body}`)
+    this.name = 'NotionApiError'
+  }
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status === 409 || status >= 500
+}
+
+function retryDelayMs(attempt: number, retryAfter: string | null): number {
+  const retryAfterSeconds = retryAfter ? Number(retryAfter) : NaN
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
+    return Math.min(retryAfterSeconds * 1000 + Math.floor(Math.random() * 250), NOTION_RETRY_MAX_MS)
+  }
+  const exponential = NOTION_RETRY_BASE_MS * 2 ** (attempt - 1)
+  return Math.min(exponential + Math.floor(Math.random() * NOTION_RETRY_BASE_MS), NOTION_RETRY_MAX_MS)
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 async function notionFetch(apiKey: string, path: string, params?: Record<string, string>): Promise<any> {
   const url = new URL(`${NOTION_API}${path}`)
@@ -97,20 +137,40 @@ async function notionFetch(apiKey: string, path: string, params?: Record<string,
     }
   }
 
-  const resp = await fetch(url.toString(), {
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Notion-Version': NOTION_VERSION,
-      'Content-Type': 'application/json',
-    },
-  })
+  for (let attempt = 1; ; attempt += 1) {
+    let resp: Response
+    let body: string
+    await acquireNotionSlot()
+    try {
+      resp = await fetch(url.toString(), {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Notion-Version': NOTION_VERSION,
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(NOTION_REQUEST_TIMEOUT_MS),
+      })
+      body = await resp.text()
+    } catch (error) {
+      releaseNotionSlot()
+      if (attempt >= NOTION_MAX_ATTEMPTS) {
+        throw error
+      }
+      await sleep(retryDelayMs(attempt, null))
+      continue
+    }
+    releaseNotionSlot()
 
-  if (!resp.ok) {
-    const body = await resp.text()
-    throw new Error(`Notion API error ${resp.status}: ${body}`)
+    if (resp.ok) {
+      return JSON.parse(body)
+    }
+
+    if (isRetryableStatus(resp.status) && attempt < NOTION_MAX_ATTEMPTS) {
+      await sleep(retryDelayMs(attempt, resp.headers.get('Retry-After')))
+      continue
+    }
+    throw new NotionApiError(resp.status, body, path)
   }
-
-  return resp.json()
 }
 
 const pageLookupCache = new Map<string, Promise<Page>>()
@@ -172,10 +232,14 @@ export async function fetchPageAncestors(
 }
 
 export async function fetchPageData(apiKey: string, pageId: string, env?: Env): Promise<PageData> {
-  const [page, blocks] = await Promise.all([
-    notionFetch(apiKey, `/pages/${pageId}`) as Promise<Page>,
-    fetchAllBlocks(apiKey, pageId),
-  ])
+  // The page is read before its blocks: its last_edited_time is then never newer
+  // than the content rendered, so an edit made during the fetch shows up as a
+  // newer version on the next poll instead of being acknowledged unrendered.
+  const page = await notionFetch(apiKey, `/pages/${pageId}`) as Page & { archived?: boolean; in_trash?: boolean }
+  if (page.archived || page.in_trash) {
+    throw new NotionApiError(404, 'page is archived or in trash', `/pages/${pageId}`)
+  }
+  const blocks = await fetchAllBlocks(apiKey, pageId)
   await attachPageIcons(apiKey, blocks)
   if (env) {
     await attachBookmarkMetadata(env, blocks)
@@ -183,41 +247,6 @@ export async function fetchPageData(apiKey: string, pageId: string, env?: Env): 
   const childPages = extractChildPages(blocks)
 
   return { page, blocks, childPages }
-}
-
-export async function fetchWorkspacePublicPages(
-  apiKey: string,
-  rootPageId: string,
-): Promise<WorkspacePageIndexEntry[]> {
-  const pagesById = new Map<string, WorkspacePageIndexEntry>()
-  const normalizedRootPageId = normalizePageId(rootPageId)
-  let cursor: string | undefined
-
-  do {
-    const response = await notionSearchPages(apiKey, cursor)
-
-    for (const page of response.results) {
-      if (page.in_trash || page.archived || page.is_archived) {
-        continue
-      }
-
-      const normalizedPageId = normalizePageId(page.id)
-      if (!page.public_url && normalizedPageId !== normalizedRootPageId) {
-        continue
-      }
-
-      pagesById.set(normalizedPageId, toWorkspacePageIndexEntry(page))
-    }
-
-    cursor = response.has_more ? response.next_cursor || undefined : undefined
-  } while (cursor)
-
-  if (!pagesById.has(normalizedRootPageId)) {
-    const rootPage = await fetchPageById(apiKey, rootPageId)
-    pagesById.set(normalizedRootPageId, toWorkspacePageIndexEntry(rootPage))
-  }
-
-  return [...pagesById.values()]
 }
 
 async function fetchAllBlocks(apiKey: string, blockId: string, depth = 0): Promise<Block[]> {
@@ -252,52 +281,6 @@ async function fetchAllBlocks(apiKey: string, blockId: string, depth = 0): Promi
   } while (cursor)
 
   return blocks
-}
-
-async function notionSearchPages(
-  apiKey: string,
-  startCursor?: string,
-): Promise<{ results: SearchResultPage[]; has_more: boolean; next_cursor?: string | null }> {
-  const body: Record<string, unknown> = {
-    filter: {
-      value: 'page',
-      property: 'object',
-    },
-    page_size: 100,
-  }
-
-  if (startCursor) {
-    body.start_cursor = startCursor
-  }
-
-  let delayMs = 1000
-  for (let attempt = 1; attempt <= 6; attempt += 1) {
-    const response = await fetch(`${NOTION_API}/search`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Notion-Version': NOTION_VERSION,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    })
-
-    if (response.ok) {
-      return response.json()
-    }
-
-    const retryAfter = Number(response.headers.get('retry-after') || '0')
-    const shouldRetry = response.status === 429 || response.status >= 500
-    const errorText = await response.text()
-    if (!shouldRetry || attempt === 6) {
-      throw new Error(`Notion API search failed (${response.status}): ${errorText}`)
-    }
-
-    await sleep(retryAfter > 0 ? retryAfter * 1000 : delayMs)
-    delayMs *= 2
-  }
-
-  throw new Error('Notion API search failed after retries.')
 }
 
 async function mapWithConcurrency<T>(
@@ -341,7 +324,7 @@ async function attachPageIcons(apiKey: string, blocks: Block[]): Promise<void> {
 
   const metadataByPageId = new Map<string, PageReferenceMetadata>()
 
-  await mapWithConcurrency(knownPageIds, 6, async (pageId) => {
+  await mapWithConcurrency(knownPageIds, CHILD_FETCH_CONCURRENCY, async (pageId) => {
     metadataByPageId.set(pageId, await fetchPageReferenceMetadata(apiKey, pageId))
   })
 
@@ -407,8 +390,15 @@ async function fetchPageReferenceMetadata(apiKey: string, pageId: string): Promi
       icon: getPageIcon(page),
       isAccessible: true,
     }
-  } catch {
-    return fetchPublicPageReference(pageId)
+  } catch (error) {
+    // A page the integration cannot see (not shared, deleted, malformed id)
+    // falls back to the public lookup. Throttling or a Notion outage that
+    // outlived the retries must fail the render: caching the page with
+    // unresolved internal links would publish broken links until the next run.
+    if (error instanceof NotionApiError && [400, 403, 404].includes(error.status)) {
+      return fetchPublicPageReference(pageId)
+    }
+    throw error
   }
 }
 
@@ -710,20 +700,3 @@ export function getPageCover(page: Page): string | null {
   return null
 }
 
-function toWorkspacePageIndexEntry(page: Page): WorkspacePageIndexEntry {
-  const icon = getPageIcon(page)
-  const parentPageId = getParentPageId(page)
-  return {
-    pageId: page.id,
-    title: getPageTitle(page),
-    ...(icon ? { icon } : {}),
-    ...(parentPageId ? { parentPageId } : {}),
-    ...(page.last_edited_time ? { lastModified: page.last_edited_time } : {}),
-  }
-}
-
-async function sleep(ms: number): Promise<void> {
-  if (ms > 0) {
-    await new Promise((resolve) => setTimeout(resolve, ms))
-  }
-}

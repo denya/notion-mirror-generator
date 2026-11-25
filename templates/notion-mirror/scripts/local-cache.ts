@@ -6,7 +6,7 @@ import { fromCachedDocumentUrl } from '../src/asset-url'
 import type { PageData } from '../src/notion-client'
 import type { SitemapEntry } from '../src/sitemap'
 
-const DEFAULT_CACHE_ROOT = fileURLToPath(new URL('../.cache/warm-cache', import.meta.url))
+const DEFAULT_CACHE_ROOT = process.env.WARM_CACHE_ROOT || fileURLToPath(new URL('../.cache/warm-cache', import.meta.url))
 
 interface CachedPageSnapshot {
   pageData: PageData

@@ -2,7 +2,7 @@
 
 Turn any Notion page into a fast, branded, SEO-friendly website on your own domain — backed by Cloudflare Workers, with a local backup you own.
 
-**Live example:** [spain.denyamsk.ru](https://spain.denyamsk.ru) (mirrored from a Notion workspace)
+**Live example:** [spain.denyamsk.com](https://spain.denyamsk.com) (mirrored from a Notion workspace)
 
 ## Notion source → Deployed mirror
 
@@ -13,7 +13,7 @@ Turn any Notion page into a fast, branded, SEO-friendly website on your own doma
 </tr>
 <tr>
 <td><a href="https://barcelona-startups-relocation.notion.site/Relocate-to-Spain-Digital-Nomad-Startup-Founders-1372979b1b584059bd83d19bbbafa985"><img src="./assets/screenshots/notion-source.png" alt="Notion source page" /></a></td>
-<td><a href="https://spain.denyamsk.ru/"><img src="./assets/screenshots/mirror-spain-denyamsk.png" alt="Deployed mirror" /></a></td>
+<td><a href="https://spain.denyamsk.com/"><img src="./assets/screenshots/mirror-spain-denyamsk.png" alt="Deployed mirror" /></a></td>
 </tr>
 </table>
 

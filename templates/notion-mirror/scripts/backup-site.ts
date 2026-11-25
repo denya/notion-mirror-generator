@@ -175,6 +175,7 @@ function buildEnv(): Env {
     SITE_NAME: process.env.SITE_NAME || vars.SITE_NAME || '',
     SITE_DESCRIPTION: process.env.SITE_DESCRIPTION || vars.SITE_DESCRIPTION || '',
     CACHE_TTL_SECONDS: process.env.CACHE_TTL_SECONDS || vars.CACHE_TTL_SECONDS || '86400',
+    LIVE_REFRESH: process.env.LIVE_REFRESH || vars.LIVE_REFRESH,
     NOTION_WORKSPACE_SLUG: process.env.NOTION_WORKSPACE_SLUG || vars.NOTION_WORKSPACE_SLUG || '',
     GOOGLE_TAG_ID: process.env.GOOGLE_TAG_ID || vars.GOOGLE_TAG_ID,
     // Without it the consent banner is not rendered and gtag loads unconsented (EEA visitors).

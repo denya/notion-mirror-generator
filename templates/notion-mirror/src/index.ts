@@ -14,6 +14,7 @@ import { buildPageBreadcrumbs } from './breadcrumbs'
 import { resolveShortLinkRedirect } from './short-links'
 import { collectPageAssetMetadata } from './document-assets'
 import { canonicalRedirectTarget, extractCanonicalPathFromHtml } from './canonical-redirect'
+import { handleSyncWrite } from './sync-write'
 
 type AppEnv = { Bindings: Env }
 interface RenderedPageCacheResult {
@@ -27,6 +28,9 @@ const app = new Hono<AppEnv>()
 const pendingPageUpdates = new Map<string, Promise<RenderedPageCacheResult>>()
 let pendingSitemapUpdate: Promise<SitemapEntry[]> | null = null
 let pendingPageIndexUpdate: Promise<CachedPageMetadataEntry[]> | null = null
+
+// KV write access for the sync daemon (sync/daemon.ts); 404 unless SYNC_WRITE_SECRET is set and sent.
+app.all('/_sync/kv/*', (c) => handleSyncWrite(c.req.raw, c.env, c.req.path.slice('/_sync/kv/'.length)))
 
 app.use('*', async (c, next) => {
   const config = getConfig(c.env)
@@ -62,7 +66,7 @@ app.get('/sitemap.xml', async (c) => {
         return xmlResponse(config.domain, await scheduleSitemapRefresh(c.env, config))
       }
 
-      if (!isCachedSitemapFresh(cached, config.cacheTtlSeconds)) {
+      if (config.liveRefresh && !isCachedSitemapFresh(cached, config.cacheTtlSeconds)) {
         c.executionCtx.waitUntil(scheduleSitemapRefresh(c.env, config).then(() => undefined))
       }
 
@@ -164,7 +168,10 @@ app.get('/:slug', async (c) => {
 async function servePage(c: any, pageId: string): Promise<Response> {
   const env: Env = c.env
   const config = getConfig(env)
-  const refresh = c.req.query('refresh') === '1'
+  // With LIVE_REFRESH=false an external sync job keeps KV current: `?refresh=1`
+  // and TTL expiry no longer re-render from Notion (big pages exceed the Free
+  // plan's subrequest limit and the attempt silently kept the stale copy).
+  const refresh = config.liveRefresh && c.req.query('refresh') === '1'
   const requestPath = c.req.path
 
   if (pageId.replace(/-/g, '') === config.rootPageId.replace(/-/g, '') && requestPath !== '/') {
@@ -195,7 +202,7 @@ async function servePage(c: any, pageId: string): Promise<Response> {
       return redirect
     }
 
-    const shouldRevalidate = !isCachedPageFresh(cached, config.cacheTtlSeconds)
+    const shouldRevalidate = config.liveRefresh && !isCachedPageFresh(cached, config.cacheTtlSeconds)
     if (shouldRevalidate) {
       c.executionCtx.waitUntil(
         schedulePageUpdate(env, config, pageId)
